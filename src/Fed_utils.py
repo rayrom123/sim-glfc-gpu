@@ -77,14 +77,11 @@ def local_train_step(client_obj, index, model_g_state, task_id, model_old, ep_g,
     client_obj.device = target_dev
     
     # Tiếp tục các bước khác
-    client_obj.update_new_set(is_task_change)
-    client_obj.model.load_state_dict(model_g_state)
-    
-    # Chuẩn bị dữ liệu
+    # 1. Chuẩn bị dữ liệu và loader trước
     group = 0 if is_old_client else 1
     client_obj.beforeTrain(task_id, group)
-
-    # Kiểm tra dữ liệu Non-IID
+    
+    # 2. Kiểm tra nếu không có dữ liệu cho task này thì dừng sớm
     if not client_obj.has_data:
         return {
             'index': index,
@@ -97,8 +94,11 @@ def local_train_step(client_obj, index, model_g_state, task_id, model_old, ep_g,
             'learned_numclass': client_obj.learned_numclass
         }
 
-    # Thực hiện huấn luyện
+    # 3. Cập nhật model và tập dữ liệu (Exemplars/Entropy) sau khi đã có loader
+    client_obj.model.load_state_dict(model_g_state)
     client_obj.update_new_set(is_task_change)
+    
+    # 4. Thực hiện huấn luyện
     train_loss = client_obj.train(ep_g, model_old, disable_pbar=True)
     
     # Kết quả
