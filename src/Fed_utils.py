@@ -101,9 +101,12 @@ def local_train_step(client_obj, index, model_g_state, task_id, model_old, ep_g,
     # 4. Thực hiện huấn luyện
     train_loss = client_obj.train(ep_g, model_old, disable_pbar=True)
     
-    # Kết quả
-    local_state = client_obj.model.state_dict()
+    # 5. Kết quả (Di chuyển về CPU để tránh lỗi mismatch device khi FedAvg)
+    local_state = {k: v.cpu() for k, v in client_obj.model.state_dict().items()}
     proto_grad = client_obj.proto_grad_sharing()
+    if proto_grad is not None:
+        # Nếu có gradient, chuyển từng phần tử về CPU
+        proto_grad = [[g.cpu() if g is not None else None for g in grad_list] for grad_list in proto_grad]
 
     # Trả về gói kết quả để Server cập nhật lại đối tượng Client cha
     return {
