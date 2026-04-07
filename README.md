@@ -38,14 +38,18 @@ python fl_main.py
 python fl_main.py --dataset tabular --device -1
 python fl_main.py --dataset tabular --model_type cnn --device -1
 
+tham số --tasks_global: số round muốn huấn luyện trong 1 task
+tham số --epochs_global: tổng số round huấn luyện
+tham số --epochs_local: số round huấn luyện local
+
 # Option 1: Huấn luyện nhanh (5 round mỗi task, tổng 30 rounds)
-python fl_main.py --dataset tabular --model_type cnn --device -1 --tasks_global 6 --epochs_global 30 --epochs_local 5
+python fl_main.py --dataset tabular --model_type cnn --device -1 --tasks_global 5 --epochs_global 30 --epochs_local 5
 
 # Option 2: Huấn luyện tiêu chuẩn (10 round mỗi task, tổng 60 rounds)
-python fl_main.py --dataset tabular --model_type cnn --device -1 --tasks_global 6 --epochs_global 60 --epochs_local 10
+python fl_main.py --dataset tabular --model_type cnn --device -1 --tasks_global 10 --epochs_global 60 --epochs_local 10
 
 # Option 3: Huấn luyện kỹ (20 round mỗi task, tổng 120 rounds)
-python fl_main.py --dataset tabular --model_type cnn --device -1 --tasks_global 6 --epochs_global 120 --epochs_local 10
+python fl_main.py --dataset tabular --model_type cnn --device -1 --tasks_global 20 --epochs_global 120 --epochs_local 10
 ```
 
 ## Performance:
