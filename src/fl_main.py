@@ -44,23 +44,43 @@ def main():
         # Cấu hình đường dẫn cho Kaggle nếu bật flag --kaggle (hoặc tự động phát hiện)
         if args.kaggle:
             print("[INFO] Đang chạy trong môi trường Kaggle. Tự động cấu hình đường dẫn.")
-            # Sử dụng các đường dẫn tiêu chuẩn trên Kaggle
-            args.data_root = '/kaggle/input/glfc-data/federated_continual_data'
-            args.test_path = '/kaggle/input/glfc-data/30_test_data.pt'
-            args.log_base  = '/kaggle/working/training_log'
             
-            # Kiểm tra nếu thư mục input tồn tại, nếu không thử một vài biến thể phổ biến
-            if not os.path.exists(args.data_root):
-                print(f"[WARN] Không tìm thấy dữ liệu tại {args.data_root}. Thử tìm trong /kaggle/input/...")
-                # Có thể người dùng đặt tên dataset khác
-                input_dir = '/kaggle/input'
-                for d in os.listdir(input_dir):
-                    potential_path = os.path.join(input_dir, d, 'federated_continual_data')
-                    if os.path.exists(potential_path):
-                        args.data_root = potential_path
-                        args.test_path = os.path.join(input_dir, d, '30_test_data.pt')
-                        print(f"[INFO] Đã tìm thấy dữ liệu tại {args.data_root}")
+            # Các gợi ý đường dẫn phổ biến trên Kaggle
+            potential_roots = [
+                '/kaggle/input/datasets/npngn123/glfc-data',
+                '/kaggle/input/glfc-data',
+                '/kaggle/input'
+            ]
+            
+            found = False
+            for root in potential_roots:
+                if not os.path.exists(root): continue
+                
+                for dirpath, dirnames, filenames in os.walk(root):
+                    if 'federated_continual_data' in dirnames:
+                        args.data_root = os.path.join(dirpath, 'federated_continual_data')
+                        # Thử tìm file test trong cùng thư mục hoặc thư mục cha
+                        test_file = '30_test_data.pt'
+                        if test_file in filenames:
+                            args.test_path = os.path.join(dirpath, test_file)
+                        elif test_file in os.listdir(os.path.dirname(dirpath)):
+                            args.test_path = os.path.join(os.path.dirname(dirpath), test_file)
+                        else:
+                            # Default fallback
+                            args.test_path = os.path.join(dirpath, test_file)
+                            
+                        args.log_base  = '/kaggle/working/training_log'
+                        print(f"[INFO] Đã tìm thấy dữ liệu tại: {args.data_root}")
+                        print(f"[INFO] Đã tìm thấy file test tại: {args.test_path}")
+                        found = True
                         break
+                if found: break
+            
+            if not found:
+                print("[WARN] Không tìm thấy dữ liệu tự động. Sử dụng đường dẫn mặc định.")
+                args.data_root = '/kaggle/input/glfc-data/federated_continual_data'
+                args.test_path = '/kaggle/input/glfc-data/30_test_data.pt'
+                args.log_base  = '/kaggle/working/training_log'
         else:
             args.data_root = '../federated_continual_data'
             args.test_path = '../30_test_data.pt'
