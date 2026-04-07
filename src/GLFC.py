@@ -17,7 +17,7 @@ from tqdm import tqdm
 def get_one_hot(target, num_class, device):
     one_hot=torch.zeros(target.shape[0],num_class)
     if device != -1:
-        one_hot = one_hot.cuda(device)
+        one_hot = one_hot.to(device)
     one_hot=one_hot.scatter(dim=1,index=target.long().view(-1,1),value=1.)
     return one_hot
 
@@ -204,7 +204,7 @@ class GLFC_model:
                         leave=False, disable=disable_pbar)
             for step, (indexs, images, target) in pbar:
                 if self.device != -1:
-                    images, target = images.cuda(self.device), target.cuda(self.device)
+                    images, target = images.to(self.device), target.to(self.device)
                 loss_value = self._compute_loss(indexs, images, target)
                 opt.zero_grad()
                 loss_value.backward()
@@ -223,7 +223,7 @@ class GLFC_model:
 
         for step, (indexs, imgs, labels) in enumerate(loader):
             if self.device != -1:
-                imgs, labels = imgs.cuda(self.device), labels.cuda(self.device)
+                imgs, labels = imgs.to(self.device), labels.to(self.device)
             with torch.no_grad():
                 outputs = self.model(imgs)
             softmax_out = nn.Softmax(dim=1)(outputs)
@@ -253,7 +253,7 @@ class GLFC_model:
 
         target = get_one_hot(label, self.numclass, self.device)
         if self.device != -1:
-            output, target = output.cuda(self.device), target.cuda(self.device)
+            output, target = output.to(self.device), target.to(self.device)
         if self.old_model == None:
             w = self.efficient_old_class_weight(output, label)
             loss_cur = torch.mean(w * F.binary_cross_entropy_with_logits(output, target, reduction='none'))
@@ -338,7 +338,7 @@ class GLFC_model:
     def compute_class_mean(self, images, transform):
         x = self.Image_transform(images, transform)
         if self.device != -1:
-            x = x.cuda(self.device)
+            x = x.to(self.device)
         feature_extractor_output = F.normalize(self.model.feature_extractor(x).detach()).cpu().numpy()
         class_mean = np.mean(feature_extractor_output, axis=0)
         return class_mean, feature_extractor_output
@@ -396,7 +396,7 @@ class GLFC_model:
                 data, label = tt(data), torch.Tensor([label]).long()
                 
             if self.device != -1:
-                data, label = data.cuda(self.device), label.cuda(self.device)
+                data, label = data.to(self.device), label.to(self.device)
             data = data.unsqueeze(0).requires_grad_(True)
             target = get_one_hot(label, self.numclass, self.device)
 
@@ -414,7 +414,7 @@ class GLFC_model:
             self.encode_model = model_to_device(self.encode_model, False, self.device)
             data = data.detach().clone().requires_grad_(False)
             if self.device != -1:
-                data = data.cuda(self.device)
+                data = data.to(self.device)
             outputs = self.encode_model(data)
             loss_cls = criterion(outputs, label)
             dy_dx = torch.autograd.grad(loss_cls, self.encode_model.parameters(), allow_unused=True)

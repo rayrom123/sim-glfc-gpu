@@ -158,7 +158,7 @@ def model_global_eval(model_g, test_dataset, task_id, task_size, device):
 
     for setp, (indexs, imgs, labels) in enumerate(test_loader):
         if device != -1:
-            imgs, labels = imgs.cuda(device), labels.cuda(device)
+            imgs, labels = imgs.to(device), labels.to(device)
         with torch.no_grad():
             outputs = model_g(imgs)
             loss = criterion(outputs, labels)

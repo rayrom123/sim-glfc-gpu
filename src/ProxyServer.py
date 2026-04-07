@@ -56,7 +56,7 @@ class proxyServer:
         correct, total = 0, 0
         for step, (imgs, labels) in enumerate(self.monitor_loader):
             if self.device != -1:
-                imgs, labels = imgs.cuda(self.device), labels.cuda(self.device)
+                imgs, labels = imgs.to(self.device), labels.to(self.device)
             with torch.no_grad():
                 outputs = self.model(imgs)
             predicts = torch.max(outputs, dim=1)[1]
@@ -99,10 +99,10 @@ class proxyServer:
 
                     if self.device != -1:
                         if self.dataset_type == 'tabular':
-                            dummy_data = torch.randn((1, 32)).cuda(self.device).requires_grad_(True)
+                            dummy_data = torch.randn((1, 32)).to(self.device).requires_grad_(True)
                         else:
-                            dummy_data = torch.randn((1, 3, 32, 32)).cuda(self.device).requires_grad_(True)
-                        label_pred = torch.Tensor([label_i]).long().cuda(self.device).requires_grad_(False)
+                            dummy_data = torch.randn((1, 3, 32, 32)).to(self.device).requires_grad_(True)
+                        label_pred = torch.tensor([label_i]).long().to(self.device).requires_grad_(False)
                     else:
                         if self.dataset_type == 'tabular':
                             dummy_data = torch.randn((1, 32)).requires_grad_(True)
@@ -112,7 +112,7 @@ class proxyServer:
 
                     optimizer = torch.optim.LBFGS([dummy_data, ], lr=0.1)
                     if self.device != -1:
-                        criterion = nn.CrossEntropyLoss().cuda(self.device)
+                        criterion = nn.CrossEntropyLoss().to(self.device)
                     else:
                         criterion = nn.CrossEntropyLoss()
 
