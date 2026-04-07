@@ -382,8 +382,11 @@ class GLFC_model:
             pro_index = np.argmin(dis)
             proto.append(images[pro_index])
 
+        proto_model = copy.deepcopy(self.model)
+        proto_model = model_to_device(proto_model, False, self.device)
+        proto_model.eval()
+
         for i in range(len(proto)):
-            self.model.eval()
             data = proto[i]
             label = self.current_class[i]
             
@@ -392,7 +395,6 @@ class GLFC_model:
                 label = torch.Tensor([label]).long()
             else:
                 data = Image.fromarray(data)
-                label_np = label
                 if self.device.type == 'cuda':
                     data, label = tt(data), torch.tensor([label]).long()
                 else:
@@ -403,8 +405,6 @@ class GLFC_model:
             target = get_one_hot(label, self.numclass, self.device)
 
             opt = optim.SGD([data, ], lr=self.learning_rate / 10, weight_decay=0.00001)
-            proto_model = copy.deepcopy(self.model)
-            proto_model = model_to_device(proto_model, False, self.device)
 
             for ep in range(iters):
                 outputs = proto_model(data)
@@ -421,5 +421,9 @@ class GLFC_model:
             dy_dx = torch.autograd.grad(loss_cls, self.encode_model.parameters(), allow_unused=True)
             original_dy_dx = list((_.detach().clone() if _ is not None else torch.zeros_like(p) for _, p in zip(dy_dx, self.encode_model.parameters())))
             proto_grad.append(original_dy_dx)
+
+        del proto_model
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         return proto_grad

@@ -229,9 +229,9 @@ def main():
 
         train_losses = []
         # Chạy huấn luyện song song cho các client được chọn
-        # Giới hạn max_workers để không bị nghẽn CPU trên Kaggle
-        cpu_cores = os.cpu_count() or 2
-        max_workers = min(args.local_clients, cpu_cores * 2) 
+        # Giới hạn max_workers để tránh lỗi CUDA Out of Memory
+        # Kaggle T4 x2 nên dùng khoảng 2-4 workers để mỗi GPU gánh 1-2 client cùng lúc là an toàn nhất
+        max_workers = 2 
         
         # Đảm bảo model_g đang ở CPU trước khi fork/spawn
         model_g = model_g.cpu()
