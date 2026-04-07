@@ -18,27 +18,29 @@ def setup_seed(seed):
     random.seed(seed)
     torch.backends.cudnn.deterministic = True
 
-def model_to_device(model, parallel, device):
-    if parallel:
-        model = nn.DataParallel(model)
-        model = model.cuda()
+def model_to_device(model, is_old, device):
+    # Nếu device đã là đối tượng torch.device
+    if isinstance(device, torch.device):
+        card = device
+    # Nếu device là số nguyên >= 0
+    elif isinstance(device, int) and device >= 0:
+        card = torch.device("cuda:{}".format(device))
+    # Nếu device là chuỗi số (ví dụ: "0")
+    elif str(device).isdigit() and int(device) >= 0:
+        card = torch.device("cuda:{}".format(device))
+    # Trường hợp là CPU hoặc âm
     else:
-        if device == -1:
-            model.to(torch.device('cpu'))
-        else:
-            card = torch.device("cuda:{}".format(device))
-            model.to(card)
-    return model
+        card = torch.device("cpu")
+    
+    return model.to(card)
 
 def participant_exemplar_storing(clients, num, model_g, old_client, task_id, clients_index):
-    for index in range(num):
-        clients[index].model = copy.deepcopy(model_g)
-        if index not in clients_index:
-            if index in old_client:
-                clients[index].beforeTrain(task_id, 0)
-            else:
-                clients[index].beforeTrain(task_id, 1)
-            clients[index].update_new_set()
+    for index in clients_index:
+        if index in old_client:
+            clients[index].beforeTrain(task_id, 0)
+        else:
+            clients[index].beforeTrain(task_id, 1)
+        clients[index].update_new_set()
 
 # Phiên bản chạy tuần tự (như cũ) - giữ lại để dự phòng
 def local_train(clients, index, model_g, task_id, model_old, ep_g, old_client, is_task_change=False):
@@ -138,7 +140,7 @@ def compute_metrics(all_preds, all_labels):
 
 def model_global_eval(model_g, test_dataset, task_id, task_size, device):
     """Evaluate global model. Returns (accuracy, precision, recall, f1, avg_loss)."""
-    model_to_device(model_g, False, device)
+    model_g = model_to_device(model_g, False, device)
     model_g.eval()
     test_range = [0, task_size * (task_id + 1)]
     test_dataset.getTestData(test_range)

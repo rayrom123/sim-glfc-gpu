@@ -11,7 +11,13 @@ from ProxyServer import *
 from mini_imagenet import *
 from tiny_imagenet import *
 from option import args_parser
+import os
+import sys
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import torch.multiprocessing as mp
+import datetime
+from multiprocessing import freeze_support
+
 try:
     mp.set_start_method('spawn', force=True)
 except RuntimeError:
@@ -181,15 +187,7 @@ def main():
         model_g_state = model_g.state_dict()
         
         with ProcessPoolExecutor(max_workers=args.local_clients) as executor:
-            futures = []
-            model_g_state = model_g.state_dict()
-            for c in clients_index:
-                is_old_client = (c in old_client_0)
-                # Submit từng client vào pool xử lý
-                futures.append(executor.submit(
-                    local_train_step,
-                    models[c], c, model_g_state, task_id, model_old, ep_g, is_old_client, is_task_change
-                ))
+            futures = [executor.submit(local_train_step, models[idx], idx, model_g_state, task_id, model_old, ep_g, idx in old_client_0, args.device, is_task_change) for idx in clients_index]
 
             # Chờ và thu thập kết quả trả về
             for future in as_completed(futures):
