@@ -19,18 +19,21 @@ def setup_seed(seed):
     torch.backends.cudnn.deterministic = True
 
 def model_to_device(model, is_old, device):
-    # Nếu device đã là đối tượng torch.device
+    # Nếu device là torch.device, dùng luôn
     if isinstance(device, torch.device):
         card = device
-    # Nếu device là số nguyên >= 0
-    elif isinstance(device, int) and device >= 0:
-        card = torch.device("cuda:{}".format(device))
-    # Nếu device là chuỗi số (ví dụ: "0")
-    elif str(device).isdigit() and int(device) >= 0:
-        card = torch.device("cuda:{}".format(device))
-    # Trường hợp là CPU hoặc âm
-    else:
+    elif device == -1 or device == "-1" or str(device).lower() == "cpu":
         card = torch.device("cpu")
+    else:
+        # Nếu là số (0) hoặc chuỗi số ("0") thì chuyển thành cuda:X
+        if str(device).isdigit():
+            card = torch.device(f"cuda:{device}")
+        else:
+            # Nếu là chuỗi "cuda:0", dùng luôn
+            try:
+                card = torch.device(device)
+            except:
+                card = torch.device("cpu")
     
     return model.to(card)
 
