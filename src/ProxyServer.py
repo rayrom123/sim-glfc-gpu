@@ -108,7 +108,7 @@ class proxyServer:
                             dummy_data = torch.randn((1, 32)).requires_grad_(True)
                         else:
                             dummy_data = torch.randn((1, 3, 32, 32)).requires_grad_(True)
-                        label_pred = torch.Tensor([label_i]).long().requires_grad_(False)
+                        label_pred = torch.tensor([label_i]).long().requires_grad_(False)
 
                     optimizer = torch.optim.LBFGS([dummy_data, ], lr=0.1)
                     if self.device != -1:

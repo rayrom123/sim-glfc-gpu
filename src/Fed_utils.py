@@ -69,10 +69,15 @@ def local_train(clients, index, model_g, task_id, model_old, ep_g, old_client, i
 # Phiên bản dành cho chạy SONG SONG
 def local_train_step(client_obj, index, model_g_state, task_id, model_old, ep_g, is_old_client, device, is_task_change=False):
     """Hàm độc lập để chạy huấn luyện 1 Client trong tiến trình riêng (multiprocessing)."""
-    # Gán thiết bị đích cho client
+    # Khởi tạo đối tượng device chuẩn xác
+    target_dev = torch.device(f"cuda:{device}" if device >= 0 else "cpu")
+    
+    # Gán thiết bị cho client trước khi thực hiện bất kỳ thao tác nào
     client_obj.target_device = device
-
-    # Đồng bộ mô hình Global tới Client này
+    client_obj.device = target_dev
+    
+    # Tiếp tục các bước khác
+    client_obj.update_new_set(is_task_change)
     client_obj.model.load_state_dict(model_g_state)
     
     # Chuẩn bị dữ liệu
@@ -157,8 +162,8 @@ def model_global_eval(model_g, test_dataset, task_id, task_size, device):
     all_preds, all_labels = [], []
 
     for setp, (indexs, imgs, labels) in enumerate(test_loader):
-        if device != -1:
-            imgs, labels = imgs.to(device), labels.to(device)
+        # Sử dụng .to() để linh hoạt cho cả CPU/GPU
+        imgs, labels = imgs.to(device), labels.to(device)
         with torch.no_grad():
             outputs = model_g(imgs)
             loss = criterion(outputs, labels)
