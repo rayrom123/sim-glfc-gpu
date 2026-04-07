@@ -107,6 +107,9 @@ class GLFC_model:
             self.train_loader = self._get_train_and_test_dataloader(self.current_class, False)
         
     def update_new_set(self, is_task_change=False):
+        if not self.has_data:
+            return
+            
         self.model = model_to_device(self.model, False, self.device)
         self.model.eval()
         self.signal = False
