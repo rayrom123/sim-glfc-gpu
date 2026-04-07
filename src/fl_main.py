@@ -34,6 +34,18 @@ def main():
         args.numclass     = 34
         args.task_size    = 6
         args.learning_rate = 0.1   # LR nhỏ hơn phù hợp với MLP/tabular/CNN
+
+        # Cấu hình đường dẫn cho Kaggle nếu bật flag --kaggle
+        if args.kaggle:
+            print("[INFO] Đang chạy trong môi trường Kaggle. Tự động cấu hình đường dẫn.")
+            args.data_root = '/kaggle/input/glfc-data/federated_continual_data'
+            args.test_path = '/kaggle/input/glfc-data/30_test_data.pt'
+            args.log_base  = '/kaggle/working/training_log'
+        else:
+            args.data_root = '../federated_continual_data'
+            args.test_path = '../30_test_data.pt'
+            args.log_base  = './training_log'
+
         if args.model_type == 'cnn':
             print("[INFO] Sử dụng mô hình CNN cho dữ liệu Tabular.")
             feature_extractor = CNN_FeatureExtractor(in_dim=32)
@@ -42,6 +54,7 @@ def main():
             feature_extractor = MLP_FeatureExtractor(in_dim=32, hidden=128)
     else:
         feature_extractor = resnet18_cbam()
+        args.log_base = './training_log'
 
     num_clients = args.num_clients
     old_client_0 = []
@@ -75,7 +88,7 @@ def main():
         test_dataset = train_dataset
 
     elif args.dataset == 'tabular':
-        test_dataset = FederatedTabularDataset(client_id=0, root_dir='../federated_continual_data', test_file='../30_test_data.pt', test=True)
+        test_dataset = FederatedTabularDataset(client_id=0, root_dir=args.data_root, test_file=args.test_path, test=True)
         test_dataset.getTestData([0, args.numclass])
     else:
         train_dataset = Mini_Imagenet('./train', train_transform=train_transform, test_transform=test_transform)
@@ -94,7 +107,7 @@ def main():
 
     for i in range(args.num_clients):
         if args.dataset == 'tabular':
-            train_dataset = FederatedTabularDataset(client_id=i, root_dir='../federated_continual_data', test_file='../30_test_data.pt')
+            train_dataset = FederatedTabularDataset(client_id=i, root_dir=args.data_root, test_file=args.test_path)
         model_temp = GLFC_model(args.numclass, feature_extractor, args.batch_size, args.task_size, args.memory_size,
                     args.epochs_local, args.learning_rate, train_dataset, args.device, encode_model, i)
         models.append(model_temp)
@@ -103,7 +116,7 @@ def main():
     proxy_server = proxyServer(args.device, args.learning_rate, args.numclass, feature_extractor, encode_model, train_transform, args.dataset)
 
     ## training log
-    output_dir = osp.join('./training_log', args.method, 'seed' + str(args.seed))
+    output_dir = osp.join(args.log_base, args.method, 'seed' + str(args.seed))
     os.makedirs(output_dir, exist_ok=True)
 
     # Tìm số thứ tự tiếp theo cho file log (log_1.txt, log_2.txt, ...)

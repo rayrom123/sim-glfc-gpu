@@ -21,5 +21,6 @@ def args_parser():
     parser.add_argument('--epochs_global', type=int, default=100, help='total number of global rounds')
     parser.add_argument('--tasks_global', type=int, default=10, help='total number of tasks')
     parser.add_argument('--model_type', type=str, default='mlp', choices=['mlp', 'cnn'], help="Architecture for tabular data")
+    parser.add_argument('--kaggle', action='store_true', help="Set paths for Kaggle environment")
     args = parser.parse_args()
     return args
