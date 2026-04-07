@@ -1,0 +1,1 @@
+method_glfc, task_size_6, learning_rate_0.1, started_at_20260407_115416

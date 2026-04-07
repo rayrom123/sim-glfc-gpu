@@ -67,8 +67,11 @@ def local_train(clients, index, model_g, task_id, model_old, ep_g, old_client, i
     return local_model, proto_grad, train_loss
 
 # Phiên bản dành cho chạy SONG SONG
-def local_train_step(client_obj, index, model_g_state, task_id, model_old, ep_g, is_old_client, is_task_change=False):
+def local_train_step(client_obj, index, model_g_state, task_id, model_old, ep_g, is_old_client, device, is_task_change=False):
     """Hàm độc lập để chạy huấn luyện 1 Client trong tiến trình riêng (multiprocessing)."""
+    # Gán thiết bị đích cho client
+    client_obj.target_device = device
+
     # Đồng bộ mô hình Global tới Client này
     client_obj.model.load_state_dict(model_g_state)
     
