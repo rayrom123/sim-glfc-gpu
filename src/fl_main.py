@@ -38,9 +38,9 @@ def main():
         # Cấu hình đường dẫn cho Kaggle nếu bật flag --kaggle
         if args.kaggle:
             print("[INFO] Đang chạy trong môi trường Kaggle. Tự động cấu hình đường dẫn.")
-            args.data_root = '/kaggle/input/glfc-data/federated_continual_data'
-            args.test_path = '/kaggle/input/glfc-data/30_test_data.pt'
-            args.log_base  = '/kaggle/working/training_log'
+            args.data_root = '/kaggle/input/datasets/npngn123/glfc-data/federated_continual_data'
+            args.test_path = '/kaggle/input/datasets/npngn123/glfc-data/30_test_data.pt'
+            args.log_base  = '/kaggle/working/'
         else:
             args.data_root = '../federated_continual_data'
             args.test_path = '../30_test_data.pt'
