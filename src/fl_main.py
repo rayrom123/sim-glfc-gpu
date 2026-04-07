@@ -14,10 +14,18 @@ from option import args_parser
 import os
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
+import torch.multiprocessing as mp
 import datetime
 from multiprocessing import freeze_support
 
 def main():
+    # Ép buộc sử dụng 'spawn' thay vì 'fork' để tránh lỗi CUDA trên Linux/Kaggle
+    try:
+        mp.set_start_method('spawn', force=True)
+        print("[INFO] Multiprocessing start method set to 'spawn'")
+    except RuntimeError:
+        pass
+
     args = args_parser()
 
     ## parameters for learning
