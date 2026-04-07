@@ -11,21 +11,13 @@ from ProxyServer import *
 from mini_imagenet import *
 from tiny_imagenet import *
 from option import args_parser
-import os
-import sys
-from concurrent.futures import ProcessPoolExecutor, as_completed
 import torch.multiprocessing as mp
-import datetime
-from multiprocessing import freeze_support
+try:
+    mp.set_start_method('spawn', force=True)
+except RuntimeError:
+    pass
 
 def main():
-    # Ép buộc sử dụng 'spawn' thay vì 'fork' để tránh lỗi CUDA trên Linux/Kaggle
-    try:
-        mp.set_start_method('spawn', force=True)
-        print("[INFO] Multiprocessing start method set to 'spawn'")
-    except RuntimeError:
-        pass
-
     args = args_parser()
 
     ## parameters for learning
@@ -75,7 +67,8 @@ def main():
 
     ## model settings
     model_g = network(args.numclass, feature_extractor)
-    model_g = model_to_device(model_g, False, args.device)
+    # KHÔNG đẩy model_g lên device ở đây nếu dùng đa tiến trình trên GPU ở Linux
+    # model_g = model_to_device(model_g, False, args.device)
     model_old = None
 
     train_transform = transforms.Compose([transforms.RandomCrop((args.img_size, args.img_size), padding=4),
@@ -121,7 +114,8 @@ def main():
         models.append(model_temp)
 
     ## the proxy server
-    proxy_server = proxyServer(args.device, args.learning_rate, args.numclass, feature_extractor, encode_model, train_transform, args.dataset)
+    # Proxy server cũng khởi tạo trên CPU trước
+    proxy_server = proxyServer(-1, args.learning_rate, args.numclass, feature_extractor, encode_model, train_transform, args.dataset)
 
     ## training log
     output_dir = osp.join(args.log_base, args.method, 'seed' + str(args.seed))
@@ -182,8 +176,11 @@ def main():
         train_losses = []
         # Chạy huấn luyện song song cho các client được chọn
         # Sử dụng ProcessPoolExecutor để tận dụng đa nhân CPU trên Windows
-        max_workers = min(len(clients_index), os.cpu_count() or 1)
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        # Trước khi gửi qua đa tiến trình, đảm bảo model_g đang ở CPU
+        model_g = model_g.cpu()
+        model_g_state = model_g.state_dict()
+        
+        with ProcessPoolExecutor(max_workers=args.local_clients) as executor:
             futures = []
             model_g_state = model_g.state_dict()
             for c in clients_index:

@@ -34,8 +34,16 @@ class GLFC_model:
         super(GLFC_model, self).__init__()
         self.epochs = epochs
         self.learning_rate = learning_rate
-        self.model = network(numclass, feature_extractor)
+        self.feature_extractor = feature_extractor
+        self.model = network(numclass, self.feature_extractor)
         self.encode_model = encode_model
+        
+        # Mặc định để ở CPU, sẽ đẩy lên GPU sau trong hàm train()
+        self.device = torch.device("cpu")
+        self.model = self.model.to(self.device)
+        self.feature_extractor = self.feature_extractor.to(self.device)
+        self.encode_model = self.encode_model.to(self.device)
+        self.target_device = device # Lưu dấu thiết bị đích (GPU)
         self.client_id = client_id
 
 
@@ -60,7 +68,6 @@ class GLFC_model:
         self.current_class = None
         self.last_class = None
         self.task_id_old = -1
-        self.device = device
         self.last_entropy = 0
         self.has_data = True
 
@@ -142,6 +149,14 @@ class GLFC_model:
         return train_loader
 
     def train(self, ep_g, model_old, disable_pbar=False):
+        # Đẩy mô hình lên GPU ngay trước khi huấn luyện
+        target_dev = torch.device(f"cuda:{self.target_device}" if self.target_device >= 0 else "cpu")
+        if target_dev.type == 'cuda':
+            self.model = self.model.to(target_dev)
+            self.feature_extractor = self.feature_extractor.to(target_dev)
+            self.encode_model = self.encode_model.to(target_dev)
+            self.device = target_dev
+
         if not self.has_data:
             return 0.0
         self.model = model_to_device(self.model, False, self.device)
