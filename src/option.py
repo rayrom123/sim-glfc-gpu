@@ -9,7 +9,7 @@ def args_parser():
     parser.add_argument('--iid_level', type=int, default=6, help='number of data classes for local clients')
     parser.add_argument('--numclass', type=int, default=10, help="number of data classes in the first task")
     parser.add_argument('--img_size', type=int, default=32, help="size of images")
-    parser.add_argument('--device', type=int, default=0, help="GPU ID, -1 for CPU")
+    parser.add_argument('--device', type=str, default='auto', help="GPU ID(s), 'auto' to use all available, -1 for CPU")
     parser.add_argument('--batch_size', type=int, default=128, help='size of mini-batch')
     parser.add_argument('--task_size', type=int, default=10, help='number of data classes each task')
     parser.add_argument('--seed', type=int, default=2021, help='random seed')
@@ -21,6 +21,12 @@ def args_parser():
     parser.add_argument('--epochs_global', type=int, default=100, help='total number of global rounds')
     parser.add_argument('--tasks_global', type=int, default=10, help='total number of tasks')
     parser.add_argument('--model_type', type=str, default='mlp', choices=['mlp', 'cnn'], help="Architecture for tabular data")
-    parser.add_argument('--kaggle', action='store_true', help="Set paths for Kaggle environment")
+    parser.add_argument('--kaggle', action='store_true', help="Automate paths for Kaggle environment")
     args = parser.parse_args()
+    
+    # Tự động gán --kaggle nếu phát hiện môi trường Kaggle
+    import os
+    if os.environ.get('KAGGLE_KERNEL_RUN_TYPE'):
+        args.kaggle = True
+        
     return args

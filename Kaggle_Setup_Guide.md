@@ -1,11 +1,10 @@
-# Hướng dẫn Setup và Chạy GLFC trên Kaggle
+# Hướng dẫn Setup và Chạy GLFC trên Kaggle (Tối ưu Multi-GPU)
 
-Tài liệu này hướng dẫn bạn cách đưa toàn bộ repo `sim-glfc` lên Kaggle và cấu hình để chạy huấn luyện hiệu quả.
+Tài liệu này hướng dẫn bạn cách chạy repo `sim-glfc` trên Kaggle bằng GPU (P100, T4, hoặc T4 x2) một cách tự động và hiệu quả nhất.
 
 ---
 
 ## 1. Chuẩn bị dữ liệu (Kaggle Dataset)
-Để Kaggle nhận được dữ liệu, bạn cần tạo một **New Dataset**:
 1.  Nén (Zip) thư mục `federated_continual_data` và file `30_test_data.pt` (nếu có).
 2.  Lên Kaggle -> **Datasets** -> **New Dataset**.
 3.  Upload file Zip và đặt tên (ví dụ: `glfc-data`).

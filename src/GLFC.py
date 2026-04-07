@@ -143,8 +143,8 @@ class GLFC_model:
         train_loader = DataLoader(dataset=self.train_dataset,
                                   shuffle=True,
                                   batch_size=self.batchsize,
-                                  num_workers=0,
-                                  pin_memory=False)
+                                  num_workers=2,
+                                  pin_memory=True)
 
         return train_loader
 

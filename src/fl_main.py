@@ -41,12 +41,26 @@ def main():
         args.task_size    = 6
         args.learning_rate = 0.1   # LR nhỏ hơn phù hợp với MLP/tabular/CNN
 
-        # Cấu hình đường dẫn cho Kaggle nếu bật flag --kaggle
+        # Cấu hình đường dẫn cho Kaggle nếu bật flag --kaggle (hoặc tự động phát hiện)
         if args.kaggle:
             print("[INFO] Đang chạy trong môi trường Kaggle. Tự động cấu hình đường dẫn.")
-            args.data_root = '/kaggle/input/datasets/npngn123/glfc-data/federated_continual_data'
-            args.test_path = '/kaggle/input/datasets/npngn123/glfc-data/30_test_data.pt'
-            args.log_base  = '/kaggle/working/'
+            # Sử dụng các đường dẫn tiêu chuẩn trên Kaggle
+            args.data_root = '/kaggle/input/glfc-data/federated_continual_data'
+            args.test_path = '/kaggle/input/glfc-data/30_test_data.pt'
+            args.log_base  = '/kaggle/working/training_log'
+            
+            # Kiểm tra nếu thư mục input tồn tại, nếu không thử một vài biến thể phổ biến
+            if not os.path.exists(args.data_root):
+                print(f"[WARN] Không tìm thấy dữ liệu tại {args.data_root}. Thử tìm trong /kaggle/input/...")
+                # Có thể người dùng đặt tên dataset khác
+                input_dir = '/kaggle/input'
+                for d in os.listdir(input_dir):
+                    potential_path = os.path.join(input_dir, d, 'federated_continual_data')
+                    if os.path.exists(potential_path):
+                        args.data_root = potential_path
+                        args.test_path = os.path.join(input_dir, d, '30_test_data.pt')
+                        print(f"[INFO] Đã tìm thấy dữ liệu tại {args.data_root}")
+                        break
         else:
             args.data_root = '../federated_continual_data'
             args.test_path = '../30_test_data.pt'
@@ -179,15 +193,44 @@ def main():
         print('select part of clients to conduct local training')
         print(clients_index)
 
+        # Xử lý đa GPU (Multi-GPU setup)
+        if args.device == 'auto':
+            num_gpus = torch.cuda.device_count()
+            if num_gpus > 0:
+                print(f"[INFO] Đã phát hiện {num_gpus} GPU. Sẽ phân phối các client trên toàn bộ tài nguyên.")
+            else:
+                print("[INFO] Không tìm thấy GPU. Chạy trên CPU.")
+        elif args.device == '-1':
+            num_gpus = 0
+        else:
+            # Nếu người dùng truyền chuỗi số như "0" hoặc "0,1"
+            device_ids = [int(x) for x in str(args.device).split(',')]
+            num_gpus = len(device_ids)
+
         train_losses = []
         # Chạy huấn luyện song song cho các client được chọn
-        # Sử dụng ProcessPoolExecutor để tận dụng đa nhân CPU trên Windows
-        # Trước khi gửi qua đa tiến trình, đảm bảo model_g đang ở CPU
+        # Giới hạn max_workers để không bị nghẽn CPU trên Kaggle
+        cpu_cores = os.cpu_count() or 2
+        max_workers = min(args.local_clients, cpu_cores * 2) 
+        
+        # Đảm bảo model_g đang ở CPU trước khi fork/spawn
         model_g = model_g.cpu()
         model_g_state = model_g.state_dict()
         
-        with ProcessPoolExecutor(max_workers=args.local_clients) as executor:
-            futures = [executor.submit(local_train_step, models[idx], idx, model_g_state, task_id, model_old, ep_g, idx in old_client_0, args.device, is_task_change) for idx in clients_index]
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            # Map index -> GPU ID
+            futures = []
+            for i_select, idx in enumerate(clients_index):
+                if num_gpus > 0:
+                    # Phân phối đều client vào các GPU khả dụng
+                    if args.device == 'auto':
+                        gpu_id = i_select % num_gpus
+                    else:
+                        gpu_id = device_ids[i_select % num_gpus]
+                else:
+                    gpu_id = -1
+                
+                futures.append(executor.submit(local_train_step, models[idx], idx, model_g_state, task_id, model_old, ep_g, idx in old_client_0, gpu_id, is_task_change))
 
             # Chờ và thu thập kết quả trả về
             for future in as_completed(futures):
@@ -232,11 +275,13 @@ def main():
 
         if args.dataset == 'tabular':
             # Eval trên classes đã học đến task hiện tại (không phải toàn bộ 34)
+            eval_device = f"cuda:0" if num_gpus > 0 else "cpu"
             acc_global, prec, rec, f1, eval_loss = model_global_eval(
-                model_g, test_dataset, task_id, args.task_size, args.device)
+                model_g, test_dataset, task_id, args.task_size, eval_device)
         else:
+            eval_device = f"cuda:0" if num_gpus > 0 else "cpu"
             acc_global, prec, rec, f1, eval_loss = model_global_eval(
-                model_g, test_dataset, task_id, args.task_size, args.device)
+                model_g, test_dataset, task_id, args.task_size, eval_device)
 
         log_str = (
             'Task: {}, Round: {} | '
