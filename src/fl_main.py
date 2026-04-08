@@ -39,7 +39,7 @@ def main():
         
         args.numclass     = 34
         args.task_size    = 6
-        args.learning_rate = 0.1   # LR nhỏ hơn phù hợp với MLP/tabular/CNN
+        args.learning_rate = 0.01   # LR nhỏ hơn phù hợp với MLP/tabular/CNN
 
         # Cấu hình đường dẫn cho Kaggle nếu bật flag --kaggle (hoặc tự động phát hiện)
         if args.kaggle:
