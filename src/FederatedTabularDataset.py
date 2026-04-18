@@ -39,7 +39,15 @@ class FederatedTabularDataset(Dataset):
 
     def getTestData(self, classes):
         # We load the entire test dataset
-        data, targets = torch.load(self.test_file, map_location='cpu', weights_only=False)
+        obj = torch.load(self.test_file, map_location='cpu', weights_only=False)
+        
+        # Support both old tuple format and new dict format
+        if isinstance(obj, dict):
+            data = obj.get('x', torch.tensor([]))
+            targets = obj.get('y', torch.tensor([]))
+        else:
+            data, targets = obj
+
         datas, labels = [], []
         # Support class filtering if needed
         for label in range(classes[0], classes[1]):

@@ -330,7 +330,7 @@ class GLFC_model:
 
     def Image_transform(self, images, transform):
         if type(self.train_dataset).__name__ == 'FederatedTabularDataset':
-            # images is already a numpy array of shape [N, 32]
+            # images is already a numpy array of shape [N, 33]
             return torch.tensor(images, dtype=torch.float32)
             
         data = transform(Image.fromarray(images[0])).unsqueeze(0)

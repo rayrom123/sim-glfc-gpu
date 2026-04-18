@@ -47,6 +47,7 @@ def main():
             
             # Các gợi ý đường dẫn phổ biến trên Kaggle
             potential_roots = [
+                '/kaggle/input/datasets/npngn123/glfc-data3',
                 '/kaggle/input/datasets/npngn123/glfc-data',
                 '/kaggle/input/glfc-data',
                 '/kaggle/input'
@@ -57,10 +58,10 @@ def main():
                 if not os.path.exists(root): continue
                 
                 for dirpath, dirnames, filenames in os.walk(root):
-                    if 'federated_continual_data' in dirnames:
-                        args.data_root = os.path.join(dirpath, 'federated_continual_data')
+                    if 'federated_data_final' in dirnames:
+                        args.data_root = os.path.join(dirpath, 'federated_data_final')
                         # Thử tìm file test trong cùng thư mục hoặc thư mục cha
-                        test_file = '30_test_data.pt'
+                        test_file = 'global_test_data.pt'
                         if test_file in filenames:
                             args.test_path = os.path.join(dirpath, test_file)
                         elif test_file in os.listdir(os.path.dirname(dirpath)):
@@ -78,20 +79,20 @@ def main():
             
             if not found:
                 print("[WARN] Không tìm thấy dữ liệu tự động. Sử dụng đường dẫn mặc định.")
-                args.data_root = '/kaggle/input/glfc-data/federated_continual_data'
-                args.test_path = '/kaggle/input/glfc-data/30_test_data.pt'
+                args.data_root = '/kaggle/input/datasets/npngn123/glfc-data3/federated_data_final'
+                args.test_path = '/kaggle/input/datasets/npngn123/glfc-data3/test_data_final/global_test_data.pt'
                 args.log_base  = '/kaggle/working/training_log'
         else:
-            args.data_root = '../federated_continual_data'
-            args.test_path = '../30_test_data.pt'
+            args.data_root = 'federated_data_final'
+            args.test_path = 'test_data_final/global_test_data.pt'
             args.log_base  = './training_log'
 
         if args.model_type == 'cnn':
             print("[INFO] Sử dụng mô hình CNN cho dữ liệu Tabular.")
-            feature_extractor = CNN_FeatureExtractor(in_dim=32)
+            feature_extractor = CNN_FeatureExtractor(in_dim=33)
         else:
             print("[INFO] Sử dụng mô hình MLP cho dữ liệu Tabular.")
-            feature_extractor = MLP_FeatureExtractor(in_dim=32, hidden=128)
+            feature_extractor = MLP_FeatureExtractor(in_dim=33, hidden=128)
     else:
         feature_extractor = resnet18_cbam()
         args.log_base = './training_log'
@@ -138,9 +139,9 @@ def main():
 
     if args.dataset == 'tabular':
         if args.model_type == 'cnn':
-            encode_model = CNN_Encoder(in_dim=32, num_classes=args.numclass)
+            encode_model = CNN_Encoder(in_dim=33, num_classes=args.numclass)
         else:
-            encode_model = MLP_Encoder(in_dim=32, hidden=128, num_classes=args.numclass)
+            encode_model = MLP_Encoder(in_dim=33, hidden=128, num_classes=args.numclass)
         encode_model.apply(weights_init)
     else:
         encode_model = LeNet(num_classes=100)

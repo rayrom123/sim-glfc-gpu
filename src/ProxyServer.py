@@ -99,13 +99,13 @@ class proxyServer:
 
                     if self.device != -1:
                         if self.dataset_type == 'tabular':
-                            dummy_data = torch.randn((1, 32)).to(self.device).requires_grad_(True)
+                            dummy_data = torch.randn((1, 33)).to(self.device).requires_grad_(True)
                         else:
                             dummy_data = torch.randn((1, 3, 32, 32)).to(self.device).requires_grad_(True)
                         label_pred = torch.tensor([label_i]).long().to(self.device).requires_grad_(False)
                     else:
                         if self.dataset_type == 'tabular':
-                            dummy_data = torch.randn((1, 32)).requires_grad_(True)
+                            dummy_data = torch.randn((1, 33)).requires_grad_(True)
                         else:
                             dummy_data = torch.randn((1, 3, 32, 32)).requires_grad_(True)
                         label_pred = torch.tensor([label_i]).long().requires_grad_(False)

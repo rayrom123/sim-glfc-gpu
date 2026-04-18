@@ -68,7 +68,7 @@ def weights_init(m):
         print('warning: failed in weights_init for %s.bias' % m._get_name())
 
 class MLP_FeatureExtractor(nn.Module):
-    def __init__(self, in_dim=32, hidden=128):
+    def __init__(self, in_dim=33, hidden=128):
         super(MLP_FeatureExtractor, self).__init__()
         self.body = nn.Sequential(
             nn.Linear(in_dim, hidden),
@@ -86,7 +86,7 @@ class MLP_FeatureExtractor(nn.Module):
         return self.body(x)
 
 class MLP_Encoder(nn.Module):
-    def __init__(self, in_dim=32, hidden=128, num_classes=100):
+    def __init__(self, in_dim=33, hidden=128, num_classes=100):
         super(MLP_Encoder, self).__init__()
         self.body = nn.Sequential(
             nn.Linear(in_dim, hidden),
@@ -106,7 +106,7 @@ class MLP_Encoder(nn.Module):
         return out
 
 class CNN_FeatureExtractor(nn.Module):
-    def __init__(self, in_dim=32):
+    def __init__(self, in_dim=33):
         super(CNN_FeatureExtractor, self).__init__()
         self.conv = nn.Sequential(
             nn.Conv1d(1, 16, kernel_size=3, padding=1),
@@ -124,7 +124,7 @@ class CNN_FeatureExtractor(nn.Module):
         self.feature_dim = 64
 
     def forward(self, x):
-        # x shape: (batch, 32) -> reshape thành (batch, 1, 32)
+        # x shape: (batch, 33) -> reshape thành (batch, 1, 33)
         if x.dim() == 2:
             x = x.unsqueeze(1)
         out = self.conv(x)
@@ -132,7 +132,7 @@ class CNN_FeatureExtractor(nn.Module):
         return out
 
 class CNN_Encoder(nn.Module):
-    def __init__(self, in_dim=32, num_classes=100):
+    def __init__(self, in_dim=33, num_classes=100):
         super(CNN_Encoder, self).__init__()
         self.feature = CNN_FeatureExtractor(in_dim)
         self.fc = nn.Linear(64, num_classes)
