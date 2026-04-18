@@ -64,11 +64,12 @@ def main():
                         test_file = 'global_test_data.pt'
                         if test_file in filenames:
                             args.test_path = os.path.join(dirpath, test_file)
+                        elif 'test_data_final' in dirnames:
+                            args.test_path = os.path.join(dirpath, 'test_data_final', test_file)
                         elif test_file in os.listdir(os.path.dirname(dirpath)):
                             args.test_path = os.path.join(os.path.dirname(dirpath), test_file)
                         else:
-                            # Default fallback
-                            args.test_path = os.path.join(dirpath, test_file)
+                            args.test_path = os.path.join(dirpath, 'test_data_final', test_file)
                             
                         args.log_base  = '/kaggle/working/training_log'
                         print(f"[INFO] Đã tìm thấy dữ liệu tại: {args.data_root}")
