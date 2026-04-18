@@ -340,9 +340,23 @@ class GLFC_model:
 
     def compute_class_mean(self, images, transform):
         x = self.Image_transform(images, transform)
-        # Không cần if self.device != -1
-        x = x.to(self.device)
-        feature_extractor_output = F.normalize(self.model.feature_extractor(x).detach()).cpu().numpy()
+        
+        # Xử lý theo batch để tránh lỗi CUDA OOM (Out of Memory)
+        batch_size = 128
+        feature_extractor_outputs = []
+        
+        self.model.eval()
+        with torch.no_grad():
+            for i in range(0, len(x), batch_size):
+                batch_x = x[i:i + batch_size]
+                # Đẩy từng batch nhỏ lên GPU
+                batch_x = batch_x.to(self.device)
+                
+                outputs = self.model.feature_extractor(batch_x)
+                # Đưa kết quả về CPU ngay lập tức
+                feature_extractor_outputs.append(F.normalize(outputs.detach()).cpu().numpy())
+                
+        feature_extractor_output = np.concatenate(feature_extractor_outputs, axis=0)
         class_mean = np.mean(feature_extractor_output, axis=0)
         return class_mean, feature_extractor_output
 
