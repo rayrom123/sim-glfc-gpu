@@ -37,8 +37,8 @@ def main():
         if args.epochs_global == 100: args.epochs_global = 36
         if args.epochs_local == 20: args.epochs_local = 5
         
-        args.numclass     = 34
         args.task_size    = 6
+        args.numclass     = args.task_size
         args.learning_rate = 0.01   # LR nhỏ hơn phù hợp với MLP/tabular/CNN
 
         # Cấu hình đường dẫn cho Kaggle nếu bật flag --kaggle (hoặc tự động phát hiện)
@@ -88,12 +88,9 @@ def main():
             args.test_path = 'test_data_final/global_test_data.pt'
             args.log_base  = './training_log'
 
-        if args.model_type == 'cnn':
-            print("[INFO] Sử dụng mô hình CNN cho dữ liệu Tabular.")
-            feature_extractor = CNN_FeatureExtractor(in_dim=33)
-        else:
-            print("[INFO] Sử dụng mô hình MLP cho dữ liệu Tabular.")
-            feature_extractor = MLP_FeatureExtractor(in_dim=33, hidden=128)
+        args.model_type = 'cnn'
+        print("[INFO] Sử dụng mô hình CNN cho dữ liệu Tabular.")
+        feature_extractor = CNN_FeatureExtractor(in_dim=33)
     else:
         feature_extractor = resnet18_cbam()
         args.log_base = './training_log'
@@ -139,10 +136,7 @@ def main():
         test_dataset = train_dataset
 
     if args.dataset == 'tabular':
-        if args.model_type == 'cnn':
-            encode_model = CNN_Encoder(in_dim=33, num_classes=args.numclass)
-        else:
-            encode_model = MLP_Encoder(in_dim=33, hidden=128, num_classes=args.numclass)
+        encode_model = CNN_Encoder(in_dim=33, num_classes=args.numclass)
         encode_model.apply(weights_init)
     else:
         encode_model = LeNet(num_classes=100)
@@ -197,12 +191,18 @@ def main():
                 old_client_1 = random.sample([i for i in range(overall_client)], int(overall_client * 0.9))
                 old_client_0 = [i for i in range(overall_client) if i not in old_client_1]
                 num_clients = len(new_client) + len(old_client_1) + len(old_client_0)
+                
+                # Khởi tạo mô hình cho client mới (Base hụt bước này khiến Tabular Index Error)
+                for idx in range(len(models), num_clients):
+                    temp_dataset = train_dataset
+                    new_model = GLFC_model(classes_learned, feature_extractor, args.batch_size, args.task_size, args.memory_size,
+                                args.epochs_local, args.learning_rate, temp_dataset, args.device, encode_model, idx)
+                    models.append(new_model)
             print(old_client_0)
 
         if task_id != old_task_id and old_task_id != -1:
-            if args.dataset != 'tabular':
-                classes_learned += args.task_size
-                model_g.Incremental_learning(classes_learned)
+            classes_learned += args.task_size
+            model_g.Incremental_learning(classes_learned)
             model_g = model_to_device(model_g, False, args.device)
         
         print('federated global round: {}, task_id: {}'.format(ep_g, task_id))
