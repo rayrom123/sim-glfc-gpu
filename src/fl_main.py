@@ -205,8 +205,15 @@ def main():
             if args.test_only:
                 print("[INFO] Chế độ Test-only. Đang tiến hành đánh giá...")
                 eval_device = f"cuda:0" if torch.cuda.is_available() else "cpu"
-                acc, prec, rec, f1, loss = model_global_eval(model_g, test_dataset, old_task_id, args.task_size, eval_device)
-                print(f"RESULT: Acc={acc:.2f}%, Prec={prec:.2f}%, Rec={rec:.2f}%, F1={f1:.2f}%, Loss={loss:.4f}")
+                acc, metrics, loss = model_global_eval(model_g, test_dataset, old_task_id, args.task_size, eval_device)
+                
+                res_str = (
+                    f"RESULT: Acc={acc:.2f}% | Loss={loss:.4f}\n"
+                    f"Macro:    Prec={metrics['macro']['prec']:.2f}%, Rec={metrics['macro']['rec']:.2f}%, F1={metrics['macro']['f1']:.2f}%\n"
+                    f"Weighted: Prec={metrics['weighted']['prec']:.2f}%, Rec={metrics['weighted']['rec']:.2f}%, F1={metrics['weighted']['f1']:.2f}%\n"
+                    f"Micro:    Prec={metrics['micro']['prec']:.2f}%, Rec={metrics['micro']['rec']:.2f}%, F1={metrics['micro']['f1']:.2f}%"
+                )
+                print(res_str)
                 return
         else:
             print(f"[ERROR] Không tìm thấy checkpoint tại: {args.resume_path}")
@@ -332,19 +339,21 @@ def main():
         if args.dataset == 'tabular':
             # Eval trên classes đã học đến task hiện tại (không phải toàn bộ 34)
             eval_device = f"cuda:0" if num_gpus > 0 else "cpu"
-            acc_global, prec, rec, f1, eval_loss = model_global_eval(
+            acc_global, metrics, eval_loss = model_global_eval(
                 model_g, test_dataset, task_id, args.task_size, eval_device)
         else:
             eval_device = f"cuda:0" if num_gpus > 0 else "cpu"
-            acc_global, prec, rec, f1, eval_loss = model_global_eval(
+            acc_global, metrics, eval_loss = model_global_eval(
                 model_g, test_dataset, task_id, args.task_size, eval_device)
 
         log_str = (
             'Task: {}, Round: {} | '
             'TrainLoss: {:.4f} | EvalLoss: {:.4f} | '
-            'Acc: {:.2f}% | Prec: {:.2f}% | Rec: {:.2f}% | F1: {:.2f}%'
+            'Acc: {:.2f}% | '
+            'Macro-F1: {:.2f}% | Weighted-F1: {:.2f}% | Micro-F1: {:.2f}%'
         ).format(task_id, ep_g, avg_train_loss, eval_loss,
-                float(acc_global), prec, rec, f1)
+                float(acc_global), 
+                metrics['macro']['f1'], metrics['weighted']['f1'], metrics['micro']['f1'])
         out_file.write(log_str + '\n')
         out_file.flush()
         print(log_str)

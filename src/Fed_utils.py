@@ -136,7 +136,7 @@ def FedAvg(models):
     return w_avg
 
 def compute_metrics(all_preds, all_labels):
-    """Compute macro Precision, Recall, F1 across classes present in labels."""
+    """Compute Macro, Micro, and Weighted Precision, Recall, F1."""
     all_preds  = all_preds.cpu().long()
     all_labels = all_labels.cpu().long()
     classes = torch.unique(all_labels)
@@ -144,17 +144,45 @@ def compute_metrics(all_preds, all_labels):
     tp = torch.zeros(len(classes))
     fp = torch.zeros(len(classes))
     fn = torch.zeros(len(classes))
+    support = torch.zeros(len(classes))
 
     for idx, c in enumerate(classes):
         tp[idx] = ((all_preds == c) & (all_labels == c)).sum().float()
         fp[idx] = ((all_preds == c) & (all_labels != c)).sum().float()
         fn[idx] = ((all_preds != c) & (all_labels == c)).sum().float()
+        support[idx] = (all_labels == c).sum().float()
 
-    precision = (tp / (tp + fp + 1e-8)).mean().item() * 100
-    recall    = (tp / (tp + fn + 1e-8)).mean().item() * 100
-    f1        = (2 * tp / (2 * tp + fp + fn + 1e-8)).mean().item() * 100
+    # Per-class metrics
+    precision_per_class = tp / (tp + fp + 1e-8)
+    recall_per_class    = tp / (tp + fn + 1e-8)
+    f1_per_class        = 2 * tp / (2 * tp + fp + fn + 1e-8)
 
-    return precision, recall, f1
+    # Macro metrics (unweighted mean)
+    macro_prec = precision_per_class.mean().item() * 100
+    macro_rec  = recall_per_class.mean().item() * 100
+    macro_f1   = f1_per_class.mean().item() * 100
+
+    # Weighted metrics (weighted by support)
+    total_support = support.sum()
+    weights = support / (total_support + 1e-8)
+    weighted_prec = (precision_per_class * weights).sum().item() * 100
+    weighted_rec  = (recall_per_class * weights).sum().item() * 100
+    weighted_f1   = (f1_per_class * weights).sum().item() * 100
+
+    # Micro metrics (aggregate TPs, FPs, FNs)
+    total_tp = tp.sum()
+    total_fp = fp.sum()
+    total_fn = fn.sum()
+    micro_prec = (total_tp / (total_tp + total_fp + 1e-8)).item() * 100
+    micro_rec  = (total_tp / (total_tp + total_fn + 1e-8)).item() * 100
+    micro_f1   = (2 * total_tp / (2 * total_tp + total_fp + total_fn + 1e-8)).item() * 100
+
+    metrics = {
+        'macro': {'prec': macro_prec, 'rec': macro_rec, 'f1': macro_f1},
+        'weighted': {'prec': weighted_prec, 'rec': weighted_rec, 'f1': weighted_f1},
+        'micro': {'prec': micro_prec, 'rec': micro_rec, 'f1': micro_f1}
+    }
+    return metrics
 
 def model_global_eval(model_g, test_dataset, task_id, task_size, device):
     """Evaluate global model. Returns (accuracy, precision, recall, f1, avg_loss)."""
@@ -191,7 +219,7 @@ def model_global_eval(model_g, test_dataset, task_id, task_size, device):
     all_preds  = torch.cat(all_preds)  if all_preds  else torch.tensor([])
     all_labels = torch.cat(all_labels) if all_labels else torch.tensor([])
 
-    precision, recall, f1 = compute_metrics(all_preds, all_labels) if total > 0 else (0.0, 0.0, 0.0)
+    metrics = compute_metrics(all_preds, all_labels) if total > 0 else None
 
     model_g.train()
-    return accuracy, precision, recall, f1, avg_loss
+    return accuracy, metrics, avg_loss
