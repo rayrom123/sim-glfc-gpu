@@ -79,6 +79,7 @@ class GLFC_model:
                 self.numclass = self.task_size * (task_id_new + 1)
             # If tabular, we natively get unique labels of current load
             if type(self.train_dataset).__name__ == 'FederatedTabularDataset':
+                self.numclass = self.task_size * (task_id_new + 1)
                 data, targets = self.train_dataset.load_task(task_id_new + 1)
                 self.current_class = torch.unique(targets).tolist()
                 self.last_class = self.current_class if group != 0 else None

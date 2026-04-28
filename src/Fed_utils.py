@@ -99,8 +99,10 @@ def local_train_step(client_obj, index, model_g_state, task_id, model_old, ep_g,
 
     # 3. Cập nhật model và tập dữ liệu (Exemplars/Entropy) sau khi đã có loader
     if hasattr(client_obj.model, 'Incremental_learning') and 'fc.weight' in model_g_state:
-        if client_obj.model.fc.out_features != model_g_state['fc.weight'].shape[0]:
-            client_obj.model.Incremental_learning(model_g_state['fc.weight'].shape[0])
+        new_num_classes = model_g_state['fc.weight'].shape[0]
+        if client_obj.model.fc.out_features != new_num_classes:
+            client_obj.model.Incremental_learning(new_num_classes)
+            client_obj.numclass = new_num_classes
             
     client_obj.model.load_state_dict(model_g_state)
     client_obj.update_new_set(is_task_change)
