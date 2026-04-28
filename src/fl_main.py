@@ -40,6 +40,7 @@ def main():
         args.task_size    = 6
         args.numclass     = args.task_size
         args.learning_rate = 0.01   # LR nhỏ hơn phù hợp với MLP/tabular/CNN
+        args.batch_size = 4096      # Tăng batch size theo yêu cầu của người dùng
 
         # Cấu hình đường dẫn cho Kaggle nếu bật flag --kaggle (hoặc tự động phát hiện)
         if args.kaggle:
@@ -83,10 +84,13 @@ def main():
                 args.data_root = '/kaggle/input/datasets/npngn123/glfc-data3/federated_data_final'
                 args.test_path = '/kaggle/input/datasets/npngn123/glfc-data3/test_data_final/global_test_data.pt'
                 args.log_base  = '/kaggle/working/training_log'
+            
+            args.checkpoint_dir = '/kaggle/working/checkpoints'
         else:
             args.data_root = 'federated_data_final'
             args.test_path = 'test_data_final/global_test_data.pt'
             args.log_base  = './training_log'
+            args.checkpoint_dir = './checkpoints'
 
         args.model_type = 'cnn'
         print("[INFO] Sử dụng mô hình CNN cho dữ liệu Tabular.")
@@ -177,8 +181,38 @@ def main():
     out_file.flush()
 
     classes_learned = args.task_size
+    start_round = 0
     old_task_id = -1
-    for ep_g in range(args.epochs_global):
+
+    # Logic Resume Checkpoint
+    if args.resume_path:
+        if os.path.exists(args.resume_path):
+            print(f"[INFO] Đang nạp checkpoint từ: {args.resume_path}")
+            checkpoint = torch.load(args.resume_path, map_location='cpu')
+            
+            # Cập nhật thông số học tập
+            classes_learned = checkpoint['classes_learned']
+            start_round = checkpoint['round'] + 1
+            old_task_id = checkpoint['task_id']
+            
+            # Khởi tạo lại cấu trúc mô hình tăng trưởng nếu cần
+            model_g.Incremental_learning(classes_learned)
+            model_g.load_state_dict(checkpoint['model_state_dict'])
+            
+            print(f"[INFO] Đã nạp thành công. Tiếp tục từ Round {start_round}, Task {old_task_id}")
+            
+            # Nếu chỉ test thì chạy xong rồi thoát
+            if args.test_only:
+                print("[INFO] Chế độ Test-only. Đang tiến hành đánh giá...")
+                eval_device = f"cuda:0" if torch.cuda.is_available() else "cpu"
+                acc, prec, rec, f1, loss = model_global_eval(model_g, test_dataset, old_task_id, args.task_size, eval_device)
+                print(f"RESULT: Acc={acc:.2f}%, Prec={prec:.2f}%, Rec={rec:.2f}%, F1={f1:.2f}%, Loss={loss:.4f}")
+                return
+        else:
+            print(f"[ERROR] Không tìm thấy checkpoint tại: {args.resume_path}")
+            if args.test_only: return
+
+    for ep_g in range(start_round, args.epochs_global):
         pool_grad = []
         is_task_change = (ep_g % args.tasks_global == 0)
         model_old = proxy_server.model_back()
@@ -314,9 +348,25 @@ def main():
         out_file.write(log_str + '\n')
         out_file.flush()
         print(log_str)
-        print('classification accuracy of global model at round %d: %.3f \n' % (ep_g, float(acc_global)))
-
         old_task_id = task_id
+
+        # Lưu Checkpoint sau mỗi Round (hoặc theo interval)
+        if (ep_g + 1) % args.save_interval == 0:
+            os.makedirs(args.checkpoint_dir, exist_ok=True)
+            checkpoint_path = os.path.join(args.checkpoint_dir, f'checkpoint_round_{ep_g}.pt')
+            # Lưu cả bản "latest" để dễ resume
+            latest_path = os.path.join(args.checkpoint_dir, 'checkpoint_latest.pt')
+            
+            state = {
+                'model_state_dict': model_g.state_dict(),
+                'task_id': task_id,
+                'round': ep_g,
+                'classes_learned': classes_learned,
+                'args': args
+            }
+            torch.save(state, checkpoint_path)
+            torch.save(state, latest_path)
+            print(f"   [CHECKPOINT] Đã lưu mô hình tại: {checkpoint_path}")
 
 if __name__ == '__main__':
     freeze_support()
