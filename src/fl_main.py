@@ -244,7 +244,9 @@ def main():
         if task_id != old_task_id and old_task_id != -1:
             classes_learned += args.task_size
             model_g.Incremental_learning(classes_learned)
+            encode_model.Incremental_learning(classes_learned)
             model_g = model_to_device(model_g, False, args.device)
+            encode_model = model_to_device(encode_model, False, args.device)
         
         print('federated global round: {}, task_id: {}'.format(ep_g, task_id))
 

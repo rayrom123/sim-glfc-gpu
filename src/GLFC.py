@@ -71,6 +71,10 @@ class GLFC_model:
         self.last_entropy = 0
         self.has_data = True
 
+    def Incremental_learning(self, numclass):
+        self.numclass = numclass
+        self.model.Incremental_learning(numclass)
+
     # get incremental train data
     def beforeTrain(self, task_id_new, group):
         if task_id_new != self.task_id_old:
