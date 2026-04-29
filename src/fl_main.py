@@ -286,6 +286,12 @@ def main():
             # Map index -> GPU ID
             futures = []
             for i_select, idx in enumerate(clients_index):
+                client_obj = models[idx]
+                # Đồng bộ kiến trúc mô hình với Global cho tất cả Client được chọn
+                if hasattr(client_obj, 'Incremental_learning'):
+                    if client_obj.model.fc.out_features != model_g.fc.out_features:
+                        client_obj.Incremental_learning(model_g.fc.out_features)
+
                 if num_gpus > 0:
                     # Phân phối đều client vào các GPU khả dụng
                     if args.device == 'auto':
