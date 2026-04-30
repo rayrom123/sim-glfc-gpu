@@ -195,10 +195,39 @@ def main():
             start_round = checkpoint['round'] + 1
             old_task_id = checkpoint['task_id']
             
+            if 'old_client_0' in checkpoint:
+                old_client_0 = checkpoint['old_client_0']
+                old_client_1 = checkpoint['old_client_1']
+                new_client = checkpoint['new_client']
+            
             # Khởi tạo lại cấu trúc mô hình tăng trưởng nếu cần
             model_g.Incremental_learning(classes_learned)
             model_g.load_state_dict(checkpoint['model_state_dict'])
             proxy_server.numclass = classes_learned
+            
+            # Phục hồi trạng thái Proxy Server
+            if checkpoint.get('proxy_best_model_1'):
+                proxy_server.best_model_1 = copy.deepcopy(model_g)
+                proxy_server.best_model_1.load_state_dict(checkpoint['proxy_best_model_1'])
+            if checkpoint.get('proxy_best_model_2'):
+                proxy_server.best_model_2 = copy.deepcopy(model_g)
+                proxy_server.best_model_2.load_state_dict(checkpoint['proxy_best_model_2'])
+                
+            # Phục hồi trạng thái của Clients (quan trọng để không bị quên dữ liệu cũ)
+            if 'client_states' in checkpoint:
+                c_states = checkpoint['client_states']
+                # Mở rộng danh sách models nếu checkpoint có nhiều client hơn
+                for idx in range(len(models), len(c_states)):
+                    temp_dataset = train_dataset
+                    new_model = GLFC_model(classes_learned, feature_extractor, args.batch_size, args.task_size, args.memory_size,
+                                args.epochs_local, args.learning_rate, temp_dataset, args.device, encode_model, idx)
+                    models.append(new_model)
+                
+                # Nạp dữ liệu
+                for idx, c_state in enumerate(c_states):
+                    models[idx].exemplar_set = c_state['exemplar_set']
+                    models[idx].learned_classes = c_state['learned_classes']
+                    models[idx].learned_numclass = c_state['learned_numclass']
             
             print(f"[INFO] Đã nạp thành công. Tiếp tục từ Round {start_round}, Task {old_task_id}")
             
@@ -376,12 +405,26 @@ def main():
             # Lưu cả bản "latest" để dễ resume
             latest_path = os.path.join(args.checkpoint_dir, 'checkpoint_latest.pt')
             
+            client_states = []
+            for m in models:
+                client_states.append({
+                    'exemplar_set': m.exemplar_set,
+                    'learned_classes': m.learned_classes,
+                    'learned_numclass': m.learned_numclass,
+                })
+
             state = {
                 'model_state_dict': model_g.state_dict(),
                 'task_id': task_id,
                 'round': ep_g,
                 'classes_learned': classes_learned,
-                'args': args
+                'args': args,
+                'client_states': client_states,
+                'proxy_best_model_1': proxy_server.best_model_1.state_dict() if proxy_server.best_model_1 else None,
+                'proxy_best_model_2': proxy_server.best_model_2.state_dict() if proxy_server.best_model_2 else None,
+                'old_client_0': old_client_0,
+                'old_client_1': old_client_1,
+                'new_client': new_client
             }
             torch.save(state, checkpoint_path)
             torch.save(state, latest_path)
