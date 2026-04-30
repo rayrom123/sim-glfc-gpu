@@ -198,6 +198,7 @@ def main():
             # Khởi tạo lại cấu trúc mô hình tăng trưởng nếu cần
             model_g.Incremental_learning(classes_learned)
             model_g.load_state_dict(checkpoint['model_state_dict'])
+            proxy_server.numclass = classes_learned
             
             print(f"[INFO] Đã nạp thành công. Tiếp tục từ Round {start_round}, Task {old_task_id}")
             
@@ -247,6 +248,7 @@ def main():
             encode_model.Incremental_learning(classes_learned)
             model_g = model_to_device(model_g, False, args.device)
             encode_model = model_to_device(encode_model, False, args.device)
+            proxy_server.numclass = classes_learned
         
         print('federated global round: {}, task_id: {}'.format(ep_g, task_id))
 
