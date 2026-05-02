@@ -188,7 +188,7 @@ def main():
     if args.resume_path:
         if os.path.exists(args.resume_path):
             print(f"[INFO] Đang nạp checkpoint từ: {args.resume_path}")
-            checkpoint = torch.load(args.resume_path, map_location='cpu')
+            checkpoint = torch.load(args.resume_path, map_location='cpu', weights_only=False)
             
             # Cập nhật thông số học tập
             classes_learned = checkpoint['classes_learned']
