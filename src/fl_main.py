@@ -214,12 +214,18 @@ def main():
             
             # Phục hồi trạng thái Proxy Server
             if checkpoint.get('proxy_best_model_1'):
-                print(f"[DEBUG] Đang nạp proxy_best_model_1 (size trong checkpoint: {checkpoint['proxy_best_model_1']['fc.weight'].shape[0]})")
+                saved_size = checkpoint['proxy_best_model_1']['fc.weight'].shape[0]
+                print(f"[DEBUG] Đang nạp proxy_best_model_1 (size thực tế trong ckpt: {saved_size})")
                 proxy_server.best_model_1 = copy.deepcopy(model_g)
-                print(f"[DEBUG] Size của best_model_1 sau deepcopy: {proxy_server.best_model_1.fc.out_features}")
+                # Resize lại cho khớp với size trong checkpoint
+                proxy_server.best_model_1.Incremental_learning(saved_size)
                 proxy_server.best_model_1.load_state_dict(checkpoint['proxy_best_model_1'])
+                
             if checkpoint.get('proxy_best_model_2'):
+                saved_size = checkpoint['proxy_best_model_2']['fc.weight'].shape[0]
+                print(f"[DEBUG] Đang nạp proxy_best_model_2 (size thực tế trong ckpt: {saved_size})")
                 proxy_server.best_model_2 = copy.deepcopy(model_g)
+                proxy_server.best_model_2.Incremental_learning(saved_size)
                 proxy_server.best_model_2.load_state_dict(checkpoint['proxy_best_model_2'])
                 
             # Phục hồi trạng thái của Clients (quan trọng để không bị quên dữ liệu cũ)
