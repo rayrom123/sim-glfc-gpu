@@ -203,10 +203,15 @@ def main():
             # Khởi tạo lại cấu trúc mô hình tăng trưởng nếu cần
             model_g.Incremental_learning(classes_learned)
             model_g.load_state_dict(checkpoint['model_state_dict'])
+            
+            encode_model.Incremental_learning(classes_learned)
+            
             proxy_server.numclass = classes_learned
+            proxy_server.model.Incremental_learning(classes_learned)
             
             # Phục hồi trạng thái Proxy Server
             if checkpoint.get('proxy_best_model_1'):
+                # model_g đã là size chuẩn (classes_learned), nên deepcopy sẽ ra size chuẩn
                 proxy_server.best_model_1 = copy.deepcopy(model_g)
                 proxy_server.best_model_1.load_state_dict(checkpoint['proxy_best_model_1'])
             if checkpoint.get('proxy_best_model_2'):

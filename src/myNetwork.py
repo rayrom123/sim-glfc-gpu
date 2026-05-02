@@ -22,8 +22,9 @@ class network(nn.Module):
         out_feature = self.fc.out_features
 
         self.fc = nn.Linear(in_feature, numclass, bias=True)
-        self.fc.weight.data[:out_feature] = weight
-        self.fc.bias.data[:out_feature] = bias
+        copy_size = min(out_feature, numclass)
+        self.fc.weight.data[:copy_size] = weight[:copy_size]
+        self.fc.bias.data[:copy_size] = bias[:copy_size]
 
     def feature_extractor(self, inputs):
         return self.feature(inputs)
@@ -112,8 +113,9 @@ class MLP_Encoder(nn.Module):
         out_feature = self.fc.out_features
 
         self.fc = nn.Linear(in_feature, numclass, bias=True)
-        self.fc.weight.data[:out_feature] = weight
-        self.fc.bias.data[:out_feature] = bias
+        copy_size = min(out_feature, numclass)
+        self.fc.weight.data[:copy_size] = weight[:copy_size]
+        self.fc.bias.data[:copy_size] = bias[:copy_size]
 
 class CNN_FeatureExtractor(nn.Module):
     def __init__(self, in_dim=33):
