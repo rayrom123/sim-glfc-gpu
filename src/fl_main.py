@@ -201,18 +201,22 @@ def main():
                 new_client = checkpoint['new_client']
             
             # Khởi tạo lại cấu trúc mô hình tăng trưởng nếu cần
+            print(f"[DEBUG] Khởi tạo lại model_g với {classes_learned} lớp")
             model_g.Incremental_learning(classes_learned)
             model_g.load_state_dict(checkpoint['model_state_dict'])
             
+            print(f"[DEBUG] Khởi tạo lại encode_model với {classes_learned} lớp")
             encode_model.Incremental_learning(classes_learned)
             
             proxy_server.numclass = classes_learned
+            print(f"[DEBUG] Khởi tạo lại proxy_server.model với {classes_learned} lớp")
             proxy_server.model.Incremental_learning(classes_learned)
             
             # Phục hồi trạng thái Proxy Server
             if checkpoint.get('proxy_best_model_1'):
-                # model_g đã là size chuẩn (classes_learned), nên deepcopy sẽ ra size chuẩn
+                print(f"[DEBUG] Đang nạp proxy_best_model_1 (size trong checkpoint: {checkpoint['proxy_best_model_1']['fc.weight'].shape[0]})")
                 proxy_server.best_model_1 = copy.deepcopy(model_g)
+                print(f"[DEBUG] Size của best_model_1 sau deepcopy: {proxy_server.best_model_1.fc.out_features}")
                 proxy_server.best_model_1.load_state_dict(checkpoint['proxy_best_model_1'])
             if checkpoint.get('proxy_best_model_2'):
                 proxy_server.best_model_2 = copy.deepcopy(model_g)
