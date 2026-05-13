@@ -252,12 +252,19 @@ def main():
                 eval_device = f"cuda:0" if torch.cuda.is_available() else "cpu"
                 acc, metrics, loss = model_global_eval(model_g, test_dataset, old_task_id, args.task_size, eval_device)
                 
+                train_loss_val = checkpoint.get('train_loss', 0.0)
                 res_str = (
-                    f"RESULT: Acc={acc:.2f}% | Loss={loss:.4f}\n"
-                    f"Macro:    Prec={metrics['macro']['prec']:.2f}%, Rec={metrics['macro']['rec']:.2f}%, F1={metrics['macro']['f1']:.2f}%\n"
-                    f"Weighted: Prec={metrics['weighted']['prec']:.2f}%, Rec={metrics['weighted']['rec']:.2f}%, F1={metrics['weighted']['f1']:.2f}%\n"
-                    f"Micro:    Prec={metrics['micro']['prec']:.2f}%, Rec={metrics['micro']['rec']:.2f}%, F1={metrics['micro']['f1']:.2f}%"
-                )
+                    'Task: {}, Round: {} | '
+                    'TrainLoss: {:.4f} | EvalLoss: {:.4f} | '
+                    'Acc: {:.2f}% | '
+                    'Macro-F1: {:.2f}% | Weighted-F1: {:.2f}% | Micro-F1: {:.2f}%\n'
+                    'Macro-precision: {:.2f}% | Weighted-precision: {:.2f}% | Micro-precision: {:.2f}%\n'
+                    'Macro-recall: {:.2f}% | Weighted-recall: {:.2f}% | Micro-recall: {:.2f}%'
+                ).format(old_task_id, start_round - 1, train_loss_val, loss,
+                        float(acc), 
+                        metrics['macro']['f1'], metrics['weighted']['f1'], metrics['micro']['f1'],
+                        metrics['macro']['prec'], metrics['weighted']['prec'], metrics['micro']['prec'],
+                        metrics['macro']['rec'], metrics['weighted']['rec'], metrics['micro']['rec'])
                 print(res_str)
                 return
         else:
@@ -404,10 +411,14 @@ def main():
             'Task: {}, Round: {} | '
             'TrainLoss: {:.4f} | EvalLoss: {:.4f} | '
             'Acc: {:.2f}% | '
-            'Macro-F1: {:.2f}% | Weighted-F1: {:.2f}% | Micro-F1: {:.2f}%'
+            'Macro-F1: {:.2f}% | Weighted-F1: {:.2f}% | Micro-F1: {:.2f}%\n'
+            'Macro-precision: {:.2f}% | Weighted-precision: {:.2f}% | Micro-precision: {:.2f}%\n'
+            'Macro-recall: {:.2f}% | Weighted-recall: {:.2f}% | Micro-recall: {:.2f}%'
         ).format(task_id, ep_g, avg_train_loss, eval_loss,
                 float(acc_global), 
-                metrics['macro']['f1'], metrics['weighted']['f1'], metrics['micro']['f1'])
+                metrics['macro']['f1'], metrics['weighted']['f1'], metrics['micro']['f1'],
+                metrics['macro']['prec'], metrics['weighted']['prec'], metrics['micro']['prec'],
+                metrics['macro']['rec'], metrics['weighted']['rec'], metrics['micro']['rec'])
         out_file.write(log_str + '\n')
         out_file.flush()
         print(log_str)
@@ -433,6 +444,10 @@ def main():
                 'task_id': task_id,
                 'round': ep_g,
                 'classes_learned': classes_learned,
+                'train_loss': avg_train_loss,
+                'eval_loss': eval_loss,
+                'acc': float(acc_global),
+                'metrics': metrics,
                 'args': args,
                 'client_states': client_states,
                 'proxy_best_model_1': proxy_server.best_model_1.state_dict() if proxy_server.best_model_1 else None,

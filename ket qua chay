@@ -1,0 +1,45 @@
+Dựa vào log huấn luyện bạn vừa cung cấp, mình có một số đánh giá và phân tích về kết quả chạy của thuật toán GLFC trên dữ liệu dạng bảng (Tabular) như sau:
+
+### 1. Tổng quan kết quả qua các Round (Tasks)
+
+| Round (Task) | Số lượng Classes | Accuracy | Macro-F1 | Weighted-F1 | Nhận xét |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **0** | 6 | **86.19%** | 15.43% | 79.80% | Mô hình học tốt ở task đầu tiên. |
+| **1** | 12 | **32.86%** | 4.12% | 16.26% | Hiệu suất giảm đột ngột (giảm > 50%). |
+| **2** | 18 | **22.14%** | 2.32% | 8.73% | Tiếp tục suy giảm. |
+| **3** | 24 | **0.28%** | 0.11% | 0.31% | Đổ vỡ hoàn toàn (Gần như không dự đoán đúng). |
+| **4** | 30 | **0.06%** | 0.01% | 0.02% | Đổ vỡ hoàn toàn. |
+| **5** | 36 | **0.61%** | 0.37% | 0.04% | Đổ vỡ hoàn toàn. |
+
+---
+
+### 2. Phân tích các vấn đề gặp phải
+
+**A. Hiện tượng "Catastrophic Forgetting" (Quên nghiêm trọng)**
+Đây là hiện tượng kinh điển trong Continual Learning/Incremental Learning. Khi mô hình học thêm các class mới (từ Task 1 trở đi), trọng số của các class cũ bị thay đổi quá mạnh khiến mô hình quên hoàn toàn cách phân loại dữ liệu cũ. Việc Acc rớt xuống dưới 1% từ Task 3 cho thấy mô hình đang dự đoán ngẫu nhiên hoặc hội tụ toàn bộ về một class không tồn tại trong tập test.
+
+**B. Mất cân bằng dữ liệu (Class Imbalance) rất lớn**
+Ngay ở Task 0, **Accuracy rất cao (86.19%) nhưng Macro-F1 rất thấp (15.43%)**. Điều này có nghĩa là mô hình chỉ đang dự đoán đúng một vài lớp chiếm số lượng lớn (Majority classes), còn các lớp thiểu số (Minority classes) bị đoán sai hoàn toàn. Khi tính trung bình (Macro), điểm số bị kéo xuống rất thấp.
+
+**C. Proxy Server Reconstruction thất bại với Tabular Data**
+Thuật toán GLFC sử dụng Proxy Server để "tái tạo" (reconstruction) lại dữ liệu từ gradient để chống quên. Phương pháp này (khởi tạo `torch.randn` và dùng LBFGS tối ưu hóa ngược) thường **chỉ hiệu quả với hình ảnh (Image)** vì hình ảnh có cấu trúc không gian liên tục. 
+Với **dữ liệu dạng bảng (Tabular có 33 features)**, việc đảo ngược gradient để sinh ra một hàng dữ liệu ảo thường tạo ra các giá trị vô nghĩa (out-of-distribution), khi đưa các dữ liệu ảo này vào tập `exemplar` để huấn luyện lại, nó vô tình làm hỏng (corrupt) mô hình ở các task tiếp theo, dẫn đến việc mất sạch độ chính xác từ Task 3.
+
+---
+
+### 3. Đề xuất cách khắc phục & Thử nghiệm tiếp theo
+
+Nếu bạn muốn cải thiện hiệu suất cho bài toán này, bạn có thể thử các phương án sau:
+
+1. **Điều chỉnh kích thước bộ nhớ (Exemplar Memory):**
+   Bạn có thể cần tăng tham số `memory_size` để mô hình lưu trữ được nhiều dữ liệu thật của các Task cũ hơn thay vì phụ thuộc vào dữ liệu sinh ra bởi Proxy Server.
+
+2. **Tắt hoặc tùy chỉnh Proxy Reconstruction cho Tabular:**
+   Trong file `ProxyServer.py`, việc sinh dummy data cho tabular đang không đem lại hiệu quả. Bạn có thể thử nghiệm tắt phần sinh `dummy_data` này đi (chỉ dùng dữ liệu thật từ bộ nhớ Exemplar) để xem mô hình có giữ được Accuracy ở mức chấp nhận được (VD: 40-50%) thay vì rớt xuống 0% hay không.
+
+3. **Điều chỉnh Hyperparameters:**
+   * **Learning Rate (LR):** Việc LR = 0.01 có thể quá lớn cho các round sau. Bạn có thể cấu hình giảm LR (decay) dần qua các Task.
+   * **Local Epochs:** Có thể giảm số lượng `epochs_local` (ví dụ xuống 1 hoặc 2) để mô hình không bị "quá khớp" (overfit) vào dữ liệu của client mới và quên đi model global.
+
+4. **Sử dụng Loss Function xử lý mất cân bằng:**
+   Để giải quyết việc Macro-F1 quá thấp ở Task 0, bạn có thể cần đổi hàm Loss từ `CrossEntropyLoss` mặc định sang `Weighted CrossEntropy` hoặc `Focal Loss`.

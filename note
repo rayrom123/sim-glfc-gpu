@@ -1,0 +1,1 @@
+mỗi epoch lưu lại checkpoint 1 lần, tách phần train với phần test riêng, nếu có test thì lôi checkpoint ra test từng task, chủ yếu tối ưu cho phần train vẫn giữ đúng logic rồi phần test ra riêng
