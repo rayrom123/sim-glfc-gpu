@@ -19,21 +19,27 @@ def main():
     # Cấu hình đường dẫn cho Kaggle nếu bật flag --kaggle (hoặc tự động phát hiện)
     if args.kaggle:
         print("[INFO] Đang chạy trong môi trường Kaggle. Tự động cấu hình đường dẫn.")
-        potential_roots = ['/kaggle/input']
-        found = False
-        for root in potential_roots:
-            if not os.path.exists(root): continue
-            for dirpath, dirnames, filenames in os.walk(root):
-                if 'federated_data_final' in dirnames:
-                    args.data_root = os.path.join(dirpath, 'federated_data_final')
-                    test_file = 'global_test_data.pt'
-                    if test_file in filenames:
-                        args.test_path = os.path.join(dirpath, test_file)
-                    elif 'test_data_final' in dirnames:
-                        args.test_path = os.path.join(dirpath, 'test_data_final', test_file)
+        
+        # Thử đường dẫn chính xác bạn vừa cung cấp
+        args.data_root = '/kaggle/input/datasets/npngn123/glfc-data3/federated_data_final'
+        args.test_path = '/kaggle/input/datasets/npngn123/glfc-data3/test_data_final/global_test_data.pt'
+        
+        # Kiểm tra nếu đường dẫn trên không tồn tại (do tên dataset trên Kaggle có thể thay đổi nhẹ)
+        if not os.path.exists(args.test_path):
+            print("[WARN] Không tìm thấy file test tại đường dẫn ưu tiên. Đang quét /kaggle/input...")
+            found = False
+            for dirpath, dirnames, filenames in os.walk('/kaggle/input'):
+                if 'global_test_data.pt' in filenames:
+                    args.test_path = os.path.join(dirpath, 'global_test_data.pt')
+                    # Tìm folder federated_data_final tương ứng (thường cùng root)
+                    parent = os.path.dirname(os.path.dirname(dirpath))
+                    potential_data = os.path.join(parent, 'federated_data_final')
+                    if os.path.exists(potential_data):
+                        args.data_root = potential_data
                     found = True
                     break
-            if found: break
+            if not found:
+                print("[ERROR] Vẫn không tìm thấy dữ liệu test. Vui lòng kiểm tra lại Dataset đã add.")
         
         # Đường dẫn checkpoint ưu tiên theo yêu cầu của bạn
         args.checkpoint_dir = '/kaggle/input/datasets/npngn123/checkpoint-glfc/checkpoint'
