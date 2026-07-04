@@ -150,7 +150,8 @@ def main():
         if args.dataset == 'tabular':
             train_dataset = FederatedTabularDataset(client_id=i, root_dir=args.data_root, test_file=args.test_path)
         model_temp = GLFC_model(args.numclass, feature_extractor, args.batch_size, args.task_size, args.memory_size,
-                    args.epochs_local, args.learning_rate, train_dataset, args.device, encode_model, i)
+                    args.epochs_local, args.learning_rate, train_dataset, args.device, encode_model, i,
+                    args.previous_task_replay_percent, args.seed)
         models.append(model_temp)
 
     ## the proxy server
@@ -235,7 +236,8 @@ def main():
                 for idx in range(len(models), len(c_states)):
                     temp_dataset = train_dataset
                     new_model = GLFC_model(classes_learned, feature_extractor, args.batch_size, args.task_size, args.memory_size,
-                                args.epochs_local, args.learning_rate, temp_dataset, args.device, encode_model, idx)
+                                args.epochs_local, args.learning_rate, temp_dataset, args.device, encode_model, idx,
+                                args.previous_task_replay_percent, args.seed)
                     models.append(new_model)
                 
                 # Nạp dữ liệu
@@ -289,7 +291,8 @@ def main():
                 for idx in range(len(models), num_clients):
                     temp_dataset = train_dataset
                     new_model = GLFC_model(classes_learned, feature_extractor, args.batch_size, args.task_size, args.memory_size,
-                                args.epochs_local, args.learning_rate, temp_dataset, args.device, encode_model, idx)
+                                args.epochs_local, args.learning_rate, temp_dataset, args.device, encode_model, idx,
+                                args.previous_task_replay_percent, args.seed)
                     models.append(new_model)
             print(old_client_0)
 

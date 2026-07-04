@@ -29,7 +29,7 @@ def entropy(input_):
 
 class GLFC_model:
 
-    def __init__(self, numclass, feature_extractor, batch_size, task_size, memory_size, epochs, learning_rate, train_set, device, encode_model, client_id=0):
+    def __init__(self, numclass, feature_extractor, batch_size, task_size, memory_size, epochs, learning_rate, train_set, device, encode_model, client_id=0, previous_task_replay_percent=0.01, replay_seed=2021):
 
         super(GLFC_model, self).__init__()
         self.epochs = epochs
@@ -63,6 +63,8 @@ class GLFC_model:
         self.batchsize = batch_size
         self.memory_size = memory_size
         self.task_size = task_size
+        self.previous_task_replay_percent = previous_task_replay_percent
+        self.replay_seed = replay_seed
 
         self.train_loader = None
         self.current_class = None
@@ -128,14 +130,16 @@ class GLFC_model:
             self.signal = self.entropy_signal(self.train_loader)
 
         if self.signal and (self.last_class != None):
-            self.learned_numclass += len(self.last_class)
-            self.learned_classes += self.last_class
-        
-            m = int(self.memory_size / self.learned_numclass)
-            self._reduce_exemplar_sets(m)
-            for i in self.last_class: 
-                images = self.train_dataset.get_image_class(i)
-                self._construct_exemplar_set(images, m)
+            new_learned_classes = [c for c in self.last_class if c not in self.learned_classes]
+            self.learned_numclass += len(new_learned_classes)
+            self.learned_classes += new_learned_classes
+
+            if type(self.train_dataset).__name__ != 'FederatedTabularDataset':
+                m = int(self.memory_size / self.learned_numclass)
+                self._reduce_exemplar_sets(m)
+                for i in self.last_class: 
+                    images = self.train_dataset.get_image_class(i)
+                    self._construct_exemplar_set(images, m)
 
         self.model.train()
 
@@ -143,7 +147,16 @@ class GLFC_model:
 
 
     def _get_train_and_test_dataloader(self, train_classes, mix):
-        if mix:
+        if type(self.train_dataset).__name__ == 'FederatedTabularDataset':
+            replay_percent = self.previous_task_replay_percent if mix else 0.0
+            self.train_dataset.getTrainData(
+                train_classes,
+                [],
+                [],
+                previous_task_replay_percent=replay_percent,
+                replay_seed=self.replay_seed,
+            )
+        elif mix:
             self.train_dataset.getTrainData(train_classes, self.exemplar_set, self.learned_classes)
         else:
             self.train_dataset.getTrainData(train_classes, [], [])

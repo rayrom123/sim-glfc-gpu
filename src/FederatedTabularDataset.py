@@ -2,6 +2,7 @@ import torch
 import numpy as np
 from torch.utils.data import Dataset
 import os.path as osp
+import math
 
 class FederatedTabularDataset(Dataset):
     def __init__(self, client_id, root_dir='../federated_data', test_file='../30_test_data.pt', transform=None, test=False):
@@ -16,6 +17,7 @@ class FederatedTabularDataset(Dataset):
         self.TestData = np.array([])
         self.TestLabels = np.array([])
         self.current_task = 0
+        self.last_replay_counts = {}
 
     def concatenate(self, datas, labels):
         if not datas:
@@ -81,7 +83,36 @@ class FederatedTabularDataset(Dataset):
     def set_task(self, task_id):
         self.current_task = task_id + 1
 
-    def getTrainData(self, classes, exemplar_set=[], exemplar_label_set=[]):
+    def _sample_previous_task_data(self, percent=0.01, seed=2021, min_samples=1):
+        datas, labels = [], []
+        self.last_replay_counts = {}
+
+        if self.current_task <= 1 or percent <= 0:
+            return datas, labels
+
+        for task_id in range(1, self.current_task):
+            data, targets = self.load_task(task_id)
+            if len(data) == 0:
+                self.last_replay_counts[task_id] = 0
+                continue
+
+            sample_count = int(math.ceil(len(data) * percent))
+            sample_count = max(min_samples, sample_count)
+            sample_count = min(len(data), sample_count)
+
+            generator = torch.Generator()
+            generator.manual_seed(seed + self.client_id * 100003 + task_id)
+            indices = torch.randperm(len(data), generator=generator)[:sample_count]
+            index_values = indices if isinstance(data, torch.Tensor) else indices.numpy()
+
+            datas.append(data[index_values])
+            labels.append(targets[index_values])
+            self.last_replay_counts[task_id] = sample_count
+
+        return datas, labels
+
+    def getTrainData(self, classes, exemplar_set=[], exemplar_label_set=[],
+                     previous_task_replay_percent=0.0, replay_seed=2021):
         datas, labels = [], []
         
         if len(exemplar_set) != 0 and len(exemplar_label_set) != 0:
@@ -96,6 +127,13 @@ class FederatedTabularDataset(Dataset):
             # We add all instances from the task ignoring random class subsets
             datas.append(data)
             labels.append(targets)
+
+        replay_datas, replay_labels = self._sample_previous_task_data(
+            percent=previous_task_replay_percent,
+            seed=replay_seed,
+        )
+        datas.extend(replay_datas)
+        labels.extend(replay_labels)
             
         self.TrainData, self.TrainLabels = self.concatenate(datas, labels)
 
