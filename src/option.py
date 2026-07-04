@@ -15,7 +15,7 @@ def args_parser():
     parser.add_argument('--seed', type=int, default=2021, help='random seed')
     parser.add_argument('--memory_size', type=int, default=2000, help='size of exemplar memory')
     parser.add_argument('--previous_task_replay_percent', type=float, default=0.01,
-                        help='fraction of each previous tabular task to replay; default is 1%%')
+                        help='fraction of the immediately previous tabular task to replay; default is 1%%')
     parser.add_argument('--epochs_local', type=int, default=20, help='local epochs of each global round')
     parser.add_argument('--learning_rate', type=float, default=2.0, help='learning rate')
     parser.add_argument('--num_clients', type=int, default=30, help='initial number of clients')

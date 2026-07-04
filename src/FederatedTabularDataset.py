@@ -90,24 +90,24 @@ class FederatedTabularDataset(Dataset):
         if self.current_task <= 1 or percent <= 0:
             return datas, labels
 
-        for task_id in range(1, self.current_task):
-            data, targets = self.load_task(task_id)
-            if len(data) == 0:
-                self.last_replay_counts[task_id] = 0
-                continue
+        task_id = self.current_task - 1
+        data, targets = self.load_task(task_id)
+        if len(data) == 0:
+            self.last_replay_counts[task_id] = 0
+            return datas, labels
 
-            sample_count = int(math.ceil(len(data) * percent))
-            sample_count = max(min_samples, sample_count)
-            sample_count = min(len(data), sample_count)
+        sample_count = int(math.ceil(len(data) * percent))
+        sample_count = max(min_samples, sample_count)
+        sample_count = min(len(data), sample_count)
 
-            generator = torch.Generator()
-            generator.manual_seed(seed + self.client_id * 100003 + task_id)
-            indices = torch.randperm(len(data), generator=generator)[:sample_count]
-            index_values = indices if isinstance(data, torch.Tensor) else indices.numpy()
+        generator = torch.Generator()
+        generator.manual_seed(seed + self.client_id * 100003 + task_id)
+        indices = torch.randperm(len(data), generator=generator)[:sample_count]
+        index_values = indices if isinstance(data, torch.Tensor) else indices.numpy()
 
-            datas.append(data[index_values])
-            labels.append(targets[index_values])
-            self.last_replay_counts[task_id] = sample_count
+        datas.append(data[index_values])
+        labels.append(targets[index_values])
+        self.last_replay_counts[task_id] = sample_count
 
         return datas, labels
 
