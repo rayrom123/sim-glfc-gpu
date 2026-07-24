@@ -2,7 +2,76 @@ import torch
 import numpy as np
 from torch.utils.data import Dataset
 import os.path as osp
+import os
 import math
+import re
+
+
+CLIENT_TASK_RE = re.compile(r'^client_?(\d+)_task_?(\d+)\.pt$')
+
+
+def extract_xy(obj):
+    if isinstance(obj, dict):
+        data = obj.get('x', torch.tensor([]))
+        targets = obj.get('y', torch.tensor([]))
+    else:
+        data, targets = obj
+    return data, targets
+
+
+def task_id_for_index(task_ids, task_index):
+    if task_ids and 0 <= task_index < len(task_ids):
+        return task_ids[task_index]
+    return task_index + 1
+
+
+def discover_task_ids(root_dir):
+    if not root_dir or not osp.isdir(root_dir):
+        return []
+
+    task_ids = set()
+    for filename in os.listdir(root_dir):
+        match = CLIENT_TASK_RE.match(filename)
+        if match:
+            task_ids.add(int(match.group(2)))
+    return sorted(task_ids)
+
+
+def discover_label_plan(root_dir):
+    task_ids = discover_task_ids(root_dir)
+    labels_by_task = []
+
+    for task_id in task_ids:
+        labels = set()
+        for filename in os.listdir(root_dir):
+            match = CLIENT_TASK_RE.match(filename)
+            if not match or int(match.group(2)) != task_id:
+                continue
+
+            filepath = osp.join(root_dir, filename)
+            obj = torch.load(filepath, map_location='cpu', weights_only=False)
+            _, targets = extract_xy(obj)
+            if len(targets) == 0:
+                continue
+            labels.update(int(x) for x in torch.unique(torch.as_tensor(targets)).tolist())
+
+        labels_by_task.append(sorted(labels))
+
+    output_dims = []
+    learned_labels_by_task = []
+    learned = set()
+    for labels in labels_by_task:
+        learned.update(labels)
+        learned_labels = sorted(learned)
+        learned_labels_by_task.append(learned_labels)
+        output_dims.append(max(learned_labels) + 1 if learned_labels else 0)
+
+    return {
+        'task_ids': task_ids,
+        'labels_by_task': labels_by_task,
+        'learned_labels_by_task': learned_labels_by_task,
+        'output_dims': output_dims,
+    }
 
 class FederatedTabularDataset(Dataset):
     def __init__(self, client_id, root_dir='../federated_data', test_file='../30_test_data.pt', transform=None, test=False):
@@ -17,6 +86,8 @@ class FederatedTabularDataset(Dataset):
         self.TestData = np.array([])
         self.TestLabels = np.array([])
         self.current_task = 0
+        self.current_task_index = 0
+        self.task_ids = discover_task_ids(root_dir)
         self.last_replay_counts = {}
 
     def concatenate(self, datas, labels):
@@ -42,17 +113,15 @@ class FederatedTabularDataset(Dataset):
     def getTestData(self, classes):
         # We load the entire test dataset
         obj = torch.load(self.test_file, map_location='cpu', weights_only=False)
-        
-        # Support both old tuple format and new dict format
-        if isinstance(obj, dict):
-            data = obj.get('x', torch.tensor([]))
-            targets = obj.get('y', torch.tensor([]))
-        else:
-            data, targets = obj
+        data, targets = extract_xy(obj)
 
         datas, labels = [], []
-        # Support class filtering if needed
-        for label in range(classes[0], classes[1]):
+        if isinstance(classes, dict) and 'labels' in classes:
+            labels_to_eval = sorted(set(int(label) for label in classes['labels']))
+        else:
+            labels_to_eval = range(classes[0], classes[1])
+
+        for label in labels_to_eval:
             subset_data = data[targets == label]
             if len(subset_data) > 0:
                 datas.append(subset_data)
@@ -69,28 +138,27 @@ class FederatedTabularDataset(Dataset):
             return torch.tensor([]), torch.tensor([])
             
         obj = torch.load(filepath, map_location='cpu', weights_only=False)
-        
-        # New data format uses dict with 'x' and 'y' keys
-        if isinstance(obj, dict):
-            data = obj.get('x', torch.tensor([]))
-            targets = obj.get('y', torch.tensor([]))
-        else:
-            # Old data format returns a tuple (data, targets)
-            data, targets = obj
-            
-        return data, targets
+
+        return extract_xy(obj)
+
+    def get_task_file_id(self, task_index):
+        return task_id_for_index(self.task_ids, task_index)
+
+    def load_task_by_index(self, task_index):
+        return self.load_task(self.get_task_file_id(task_index))
         
     def set_task(self, task_id):
-        self.current_task = task_id + 1
+        self.current_task_index = task_id
+        self.current_task = self.get_task_file_id(task_id)
 
     def _sample_previous_task_data(self, percent=0.01, seed=2021, min_samples=1):
         datas, labels = [], []
         self.last_replay_counts = {}
 
-        if self.current_task <= 1 or percent <= 0:
+        if self.current_task_index <= 0 or percent <= 0:
             return datas, labels
 
-        task_id = self.current_task - 1
+        task_id = self.get_task_file_id(self.current_task_index - 1)
         data, targets = self.load_task(task_id)
         if len(data) == 0:
             self.last_replay_counts[task_id] = 0

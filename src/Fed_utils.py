@@ -185,13 +185,19 @@ def compute_metrics(all_preds, all_labels):
     }
     return metrics
 
-def model_global_eval(model_g, test_dataset, task_id, task_size, device):
+def model_global_eval(model_g, test_dataset, task_id, task_size, device, eval_labels=None):
     """Evaluate global model. Returns (accuracy, precision, recall, f1, avg_loss)."""
     model_g = model_to_device(model_g, False, device)
     model_g.eval()
     test_range = [0, task_size * (task_id + 1)]
-    test_dataset.getTestData(test_range)
+    if eval_labels is None:
+        test_dataset.getTestData(test_range)
+    else:
+        eval_labels = sorted(set(int(label) for label in eval_labels))
+        test_dataset.getTestData({'labels': eval_labels})
     print(f"   [EVAL] Đang kiểm tra trên các lớp thuộc phạm vi: {test_range}")
+    if eval_labels is not None:
+        print(f"   [EVAL] Labels: {eval_labels}")
     test_loader = DataLoader(dataset=test_dataset, shuffle=True, batch_size=128)
 
     criterion = nn.CrossEntropyLoss()

@@ -32,7 +32,7 @@ def resolve_data_root(path):
     if os.path.isdir(path):
         for candidate in [path, os.path.join(path, 'federated_data'), os.path.join(path, 'data')]:
             if os.path.isdir(candidate):
-                client_files = [f for f in os.listdir(candidate) if f.startswith('client_') and f.endswith('.pt')]
+                client_files = [f for f in os.listdir(candidate) if f.startswith('client') and '_task' in f and f.endswith('.pt')]
                 if client_files:
                     return candidate
         return path
@@ -98,7 +98,7 @@ def resolve_kaggle_dataset_paths(args):
         if not os.path.exists(candidate):
             continue
         if os.path.isdir(candidate):
-            client_files = [f for f in os.listdir(candidate) if f.startswith('client_') and f.endswith('.pt')]
+            client_files = [f for f in os.listdir(candidate) if f.startswith('client') and '_task' in f and f.endswith('.pt')]
             if client_files:
                 data_root = candidate
                 test_path = ''
@@ -119,10 +119,11 @@ def resolve_kaggle_dataset_paths(args):
 
 def main():
     args = args_parser()
+    tabular_label_plan = None
 
     ## parameters for learning
     if args.dataset == 'tabular':
-        from FederatedTabularDataset import FederatedTabularDataset
+        from FederatedTabularDataset import FederatedTabularDataset, discover_label_plan
         from myNetwork import MLP_FeatureExtractor, MLP_Encoder, CNN_FeatureExtractor, CNN_Encoder
         
         # Thiết lập giá trị mặc định "thông minh" cho Tabular nếu người dùng không truyền tham số khác
@@ -174,6 +175,22 @@ def main():
         if args.test_path:
             args.test_path = resolve_test_path(args.test_path)
 
+        tabular_label_plan = discover_label_plan(args.data_root)
+        if tabular_label_plan['output_dims']:
+            args.numclass = tabular_label_plan['output_dims'][0]
+            args.task_size = args.numclass
+            first_labels = tabular_label_plan['labels_by_task'][0]
+            print(
+                f"[INFO] Phát hiện {len(tabular_label_plan['task_ids'])} task tabular "
+                f"từ file task IDs {tabular_label_plan['task_ids']}"
+            )
+            print(
+                f"[INFO] Task đầu có nhãn {first_labels}; "
+                f"khởi tạo model với {args.numclass} output."
+            )
+        else:
+            print("[WARN] Không suy ra được nhãn từ federated_data; dùng task_size=6 như cấu hình cũ.")
+
         args.model_type = 'cnn'
         print("[INFO] Sử dụng mô hình CNN cho dữ liệu Tabular.")
         feature_extractor = CNN_FeatureExtractor(in_dim=33)
@@ -215,7 +232,10 @@ def main():
 
     elif args.dataset == 'tabular':
         test_dataset = FederatedTabularDataset(client_id=0, root_dir=args.data_root, test_file=args.test_path, test=True)
-        test_dataset.getTestData([0, args.numclass])
+        if tabular_label_plan and tabular_label_plan['learned_labels_by_task']:
+            test_dataset.getTestData({'labels': tabular_label_plan['learned_labels_by_task'][0]})
+        else:
+            test_dataset.getTestData([0, args.numclass])
     else:
         train_dataset = Mini_Imagenet('./train', train_transform=train_transform, test_transform=test_transform)
         train_dataset.get_data()
@@ -263,7 +283,7 @@ def main():
     out_file.write(log_str + '\n')
     out_file.flush()
 
-    classes_learned = args.task_size
+    classes_learned = args.numclass if args.dataset == 'tabular' else args.task_size
     start_round = 0
     old_task_id = -1
 
@@ -331,7 +351,11 @@ def main():
                 if args.test_only:
                     print("[INFO] Chế độ Test-only. Đang tiến hành đánh giá...")
                     eval_device = f"cuda:0" if torch.cuda.is_available() else "cpu"
-                    acc, metrics, loss = model_global_eval(model_g, test_dataset, old_task_id, args.task_size, eval_device)
+                    eval_labels = None
+                    if tabular_label_plan and old_task_id < len(tabular_label_plan['learned_labels_by_task']):
+                        eval_labels = tabular_label_plan['learned_labels_by_task'][old_task_id]
+                    acc, metrics, loss = model_global_eval(
+                        model_g, test_dataset, old_task_id, args.task_size, eval_device, eval_labels=eval_labels)
 
                     train_loss_val = checkpoint.get('train_loss', 0.0)
                     res_str = (
@@ -381,7 +405,13 @@ def main():
             print(old_client_0)
 
         if task_id != old_task_id and old_task_id != -1:
-            classes_learned += args.task_size
+            if args.dataset == 'tabular' and tabular_label_plan and tabular_label_plan['output_dims']:
+                if task_id < len(tabular_label_plan['output_dims']):
+                    classes_learned = tabular_label_plan['output_dims'][task_id]
+                else:
+                    classes_learned = max(classes_learned, args.task_size * (task_id + 1))
+            else:
+                classes_learned += args.task_size
             model_g.Incremental_learning(classes_learned)
             encode_model.Incremental_learning(classes_learned)
             model_g = model_to_device(model_g, False, args.device)
@@ -487,8 +517,11 @@ def main():
         if args.dataset == 'tabular':
             # Eval trên classes đã học đến task hiện tại (không phải toàn bộ 34)
             eval_device = f"cuda:0" if num_gpus > 0 else "cpu"
+            eval_labels = None
+            if tabular_label_plan and task_id < len(tabular_label_plan['learned_labels_by_task']):
+                eval_labels = tabular_label_plan['learned_labels_by_task'][task_id]
             acc_global, metrics, eval_loss = model_global_eval(
-                model_g, test_dataset, task_id, args.task_size, eval_device)
+                model_g, test_dataset, task_id, args.task_size, eval_device, eval_labels=eval_labels)
         else:
             eval_device = f"cuda:0" if num_gpus > 0 else "cpu"
             acc_global, metrics, eval_loss = model_global_eval(

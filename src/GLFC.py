@@ -15,10 +15,21 @@ from Fed_utils import *
 from tqdm import tqdm
 
 def get_one_hot(target, num_class, device):
+    target = target.long()
+    if target.numel() > 0:
+        min_label = int(target.min().item())
+        max_label = int(target.max().item())
+        if min_label < 0 or max_label >= num_class:
+            raise ValueError(
+                f"Label out of range for model output: min={min_label}, "
+                f"max={max_label}, num_class={num_class}. "
+                "Check tabular task indexing and inferred class count."
+            )
+
     one_hot=torch.zeros(target.shape[0],num_class)
     # to(device) tự động xử lý CPU/GPU
     one_hot = one_hot.to(device)
-    one_hot=one_hot.scatter(dim=1,index=target.long().view(-1,1),value=1.)
+    one_hot=one_hot.scatter(dim=1,index=target.view(-1,1),value=1.)
     return one_hot
 
 def entropy(input_):
@@ -29,7 +40,7 @@ def entropy(input_):
 
 class GLFC_model:
 
-    def __init__(self, numclass, feature_extractor, batch_size, task_size, memory_size, epochs, learning_rate, train_set, device, encode_model, client_id=0, previous_task_replay_percent=0.01, replay_seed=2021):
+    def __init__(self, numclass, feature_extractor, batch_size, task_size, memory_size, epochs, learning_rate, train_set, device, encode_model, client_id=0, previous_task_replay_percent=0.0, replay_seed=2021):
 
         super(GLFC_model, self).__init__()
         self.epochs = epochs
@@ -85,8 +96,7 @@ class GLFC_model:
                 self.numclass = self.task_size * (task_id_new + 1)
             # If tabular, we natively get unique labels of current load
             if type(self.train_dataset).__name__ == 'FederatedTabularDataset':
-                self.numclass = self.task_size * (task_id_new + 1)
-                data, targets = self.train_dataset.load_task(task_id_new + 1)
+                data, targets = self.train_dataset.load_task_by_index(task_id_new)
                 self.current_class = torch.unique(targets).tolist()
                 self.last_class = self.current_class if group != 0 else None
             else:
@@ -98,7 +108,7 @@ class GLFC_model:
                     self.last_class = None
 
         if type(self.train_dataset).__name__ == 'FederatedTabularDataset':
-            data, targets = self.train_dataset.load_task(task_id_new + 1)
+            data, targets = self.train_dataset.load_task_by_index(task_id_new)
             if len(targets) > 0:
                 self.has_data = True
                 self.train_dataset.set_task(task_id_new)
@@ -271,8 +281,10 @@ class GLFC_model:
 
     def _compute_loss(self, indexs, imgs, label):
         output = self.model(imgs)
+        output_numclass = output.shape[1]
+        self.numclass = output_numclass
 
-        target = get_one_hot(label, self.numclass, self.device)
+        target = get_one_hot(label, output_numclass, self.device)
         # Không cần if self.device != -1
         output, target = output.to(self.device), target.to(self.device)
         if self.old_model == None:
@@ -300,9 +312,9 @@ class GLFC_model:
         class_mask = pred.data.new(N, C).fill_(0)
         class_mask = Variable(class_mask)
         ids = label.view(-1, 1)
+        target = get_one_hot(label, C, self.device)
         class_mask.scatter_(1, ids.data, 1.)
 
-        target = get_one_hot(label, self.numclass, self.device)
         g = torch.abs(pred.detach() - target)
         g = (g * class_mask).sum(1).view(-1, 1)
 
