@@ -23,6 +23,100 @@ try:
 except RuntimeError:
     pass
 
+
+def resolve_data_root(path):
+    if not path:
+        return ''
+    if os.path.isfile(path):
+        return os.path.dirname(path)
+    if os.path.isdir(path):
+        for candidate in [path, os.path.join(path, 'federated_data'), os.path.join(path, 'data')]:
+            if os.path.isdir(candidate):
+                client_files = [f for f in os.listdir(candidate) if f.startswith('client_') and f.endswith('.pt')]
+                if client_files:
+                    return candidate
+        return path
+    return path
+
+
+def resolve_test_path(path):
+    if not path:
+        return ''
+    if os.path.isfile(path):
+        return path
+    if os.path.isdir(path):
+        for candidate in ['global_test_data.pt', 'test_data.pt']:
+            full_path = os.path.join(path, candidate)
+            if os.path.exists(full_path):
+                return full_path
+        for candidate_dir in [path, os.path.join(path, 'federated_data'), os.path.join(path, 'data')]:
+            for candidate in ['global_test_data.pt', 'test_data.pt']:
+                full_path = os.path.join(candidate_dir, candidate)
+                if os.path.exists(full_path):
+                    return full_path
+        return os.path.join(path, 'global_test_data.pt')
+    return path
+
+
+def resolve_kaggle_dataset_paths(args):
+    if args.data_root:
+        data_root = resolve_data_root(args.data_root)
+    else:
+        data_root = ''
+
+    if args.test_path:
+        test_path = resolve_test_path(args.test_path)
+    else:
+        test_path = ''
+
+    if data_root and test_path:
+        return data_root, test_path
+
+    if args.client_dataset == '100':
+        candidates = [
+            '/kaggle/input/datasets/npngn123/data-iot-100-client/CICIoT_label_skew_100_clients_bounded_nested_original_order_from_pt/federated_data',
+            '/kaggle/input/datasets/npngn123/data-iot-100-client/CICIoT_label_skew_100_clients_bounded_nested_original_order_from_pt',
+        ]
+    elif args.client_dataset == '200':
+        candidates = [
+            '/kaggle/input/datasets/npngn123/data-iot-200-client/CICIoT_label_skew_200_clients_bounded_nested_original_order_from_pt/federated_data',
+            '/kaggle/input/datasets/npngn123/data-iot-200-client/CICIoT_label_skew_200_clients_bounded_nested_original_order_from_pt',
+        ]
+    else:
+        candidates = [
+            '/kaggle/input/datasets/npngn123/data-iot-100-client/CICIoT_label_skew_100_clients_bounded_nested_original_order_from_pt/federated_data',
+            '/kaggle/input/datasets/npngn123/data-iot-100-client/CICIoT_label_skew_100_clients_bounded_nested_original_order_from_pt',
+            '/kaggle/input/datasets/npngn123/data-iot-200-client/CICIoT_label_skew_200_clients_bounded_nested_original_order_from_pt/federated_data',
+            '/kaggle/input/datasets/npngn123/data-iot-200-client/CICIoT_label_skew_200_clients_bounded_nested_original_order_from_pt',
+            '/kaggle/input/datasets/npngn123/glfc-data3',
+            '/kaggle/input/datasets/npngn123/glfc-data',
+            '/kaggle/input/glfc-data',
+            '/kaggle/input',
+        ]
+
+    for candidate in candidates:
+        if not os.path.exists(candidate):
+            continue
+        if os.path.isdir(candidate):
+            client_files = [f for f in os.listdir(candidate) if f.startswith('client_') and f.endswith('.pt')]
+            if client_files:
+                data_root = candidate
+                test_path = ''
+                for test_candidate in [
+                    os.path.join(candidate, 'global_test_data.pt'),
+                    os.path.join(os.path.dirname(candidate), 'global_test_data.pt'),
+                    os.path.join(candidate, 'test_data.pt'),
+                ]:
+                    if os.path.exists(test_candidate):
+                        test_path = test_candidate
+                        break
+                if not test_path:
+                    test_path = os.path.join(os.path.dirname(candidate), 'global_test_data.pt')
+                return data_root, test_path
+
+    return data_root or '/kaggle/input/datasets/npngn123/data-iot-100-client/CICIoT_label_skew_100_clients_bounded_nested_original_order_from_pt/federated_data', test_path or '/kaggle/input/datasets/npngn123/data-iot-100-client/CICIoT_label_skew_100_clients_bounded_nested_original_order_from_pt/global_test_data.pt'
+
+
 def main():
     args = args_parser()
 
@@ -32,10 +126,22 @@ def main():
         from myNetwork import MLP_FeatureExtractor, MLP_Encoder, CNN_FeatureExtractor, CNN_Encoder
         
         # Thiết lập giá trị mặc định "thông minh" cho Tabular nếu người dùng không truyền tham số khác
-        if args.num_clients == 30: args.num_clients = 10
-        if args.tasks_global == 10: args.tasks_global = 6
-        if args.epochs_global == 100: args.epochs_global = 36
-        if args.epochs_local == 20: args.epochs_local = 5
+        if args.num_clients is None:
+            if args.client_dataset == '200':
+                args.num_clients = 200
+            else:
+                args.num_clients = 100
+        elif args.client_dataset in {'100', '200'} and args.num_clients != int(args.client_dataset):
+            print(f"[INFO] Đã override num_clients từ {args.num_clients} thành {int(args.client_dataset)} để khớp với dataset {args.client_dataset} client")
+            args.num_clients = int(args.client_dataset)
+        if args.tasks_global == 10:
+            args.tasks_global = 6
+        if args.epochs_global == 100:
+            args.epochs_global = 36
+        if args.epochs_local == 20:
+            args.epochs_local = 5
+        if args.local_clients > args.num_clients:
+            args.local_clients = args.num_clients
         
         args.task_size    = 6
         args.numclass     = args.task_size
@@ -46,51 +152,27 @@ def main():
         if args.kaggle:
             print("[INFO] Đang chạy trong môi trường Kaggle. Tự động cấu hình đường dẫn.")
             
-            # Các gợi ý đường dẫn phổ biến trên Kaggle
-            potential_roots = [
-                '/kaggle/input/datasets/npngn123/glfc-data3',
-                '/kaggle/input/datasets/npngn123/glfc-data',
-                '/kaggle/input/glfc-data',
-                '/kaggle/input'
-            ]
-            
-            found = False
-            for root in potential_roots:
-                if not os.path.exists(root): continue
-                
-                for dirpath, dirnames, filenames in os.walk(root):
-                    if 'federated_data_final' in dirnames:
-                        args.data_root = os.path.join(dirpath, 'federated_data_final')
-                        # Thử tìm file test trong cùng thư mục hoặc thư mục cha
-                        test_file = 'global_test_data.pt'
-                        if test_file in filenames:
-                            args.test_path = os.path.join(dirpath, test_file)
-                        elif 'test_data_final' in dirnames:
-                            args.test_path = os.path.join(dirpath, 'test_data_final', test_file)
-                        elif test_file in os.listdir(os.path.dirname(dirpath)):
-                            args.test_path = os.path.join(os.path.dirname(dirpath), test_file)
-                        else:
-                            args.test_path = os.path.join(dirpath, 'test_data_final', test_file)
-                            
-                        args.log_base  = '/kaggle/working/training_log'
-                        print(f"[INFO] Đã tìm thấy dữ liệu tại: {args.data_root}")
-                        print(f"[INFO] Đã tìm thấy file test tại: {args.test_path}")
-                        found = True
-                        break
-                if found: break
-            
-            if not found:
-                print("[WARN] Không tìm thấy dữ liệu tự động. Sử dụng đường dẫn mặc định.")
-                args.data_root = '/kaggle/input/datasets/npngn123/glfc-data3/federated_data_final'
-                args.test_path = '/kaggle/input/datasets/npngn123/glfc-data3/test_data_final/global_test_data.pt'
-                args.log_base  = '/kaggle/working/training_log'
-            
+            args.data_root, args.test_path = resolve_kaggle_dataset_paths(args)
+            args.log_base  = '/kaggle/working/training_log'
             args.checkpoint_dir = '/kaggle/working/checkpoints'
+            print(f"[INFO] Đã chọn dữ liệu tại: {args.data_root}")
+            print(f"[INFO] Đã chọn file test tại: {args.test_path}")
         else:
-            args.data_root = 'federated_data_final'
-            args.test_path = 'test_data_final/global_test_data.pt'
+            if args.data_root:
+                args.data_root = resolve_data_root(args.data_root)
+            else:
+                args.data_root = 'federated_data_final'
+            if args.test_path:
+                args.test_path = resolve_test_path(args.test_path)
+            else:
+                args.test_path = 'test_data_final/global_test_data.pt'
             args.log_base  = './training_log'
             args.checkpoint_dir = './checkpoints'
+
+        if args.data_root:
+            args.data_root = resolve_data_root(args.data_root)
+        if args.test_path:
+            args.test_path = resolve_test_path(args.test_path)
 
         args.model_type = 'cnn'
         print("[INFO] Sử dụng mô hình CNN cho dữ liệu Tabular.")
@@ -188,47 +270,20 @@ def main():
     # Logic Resume Checkpoint
     if args.resume_path:
         if os.path.exists(args.resume_path):
-            print(f"[INFO] Đang nạp checkpoint từ: {args.resume_path}")
-            checkpoint = torch.load(args.resume_path, map_location='cpu', weights_only=False)
-            
-            # Cập nhật thông số học tập
-            classes_learned = checkpoint['classes_learned']
-            start_round = checkpoint['round'] + 1
-            old_task_id = checkpoint['task_id']
-            
+            try:
+                print(f"[INFO] Đang nạp checkpoint từ: {args.resume_path}")
+                checkpoint = torch.load(args.resume_path, map_location='cpu', weights_only=False)
+                
+                # Cập nhật thông số học tập
+                classes_learned = checkpoint['classes_learned']
+                start_round = checkpoint['round'] + 1
+                old_task_id = checkpoint['task_id']
+                
             if 'old_client_0' in checkpoint:
                 old_client_0 = checkpoint['old_client_0']
                 old_client_1 = checkpoint['old_client_1']
                 new_client = checkpoint['new_client']
             
-            # Khởi tạo lại cấu trúc mô hình tăng trưởng nếu cần
-            print(f"[DEBUG] Khởi tạo lại model_g với {classes_learned} lớp")
-            model_g.Incremental_learning(classes_learned)
-            model_g.load_state_dict(checkpoint['model_state_dict'])
-            
-            print(f"[DEBUG] Khởi tạo lại encode_model với {classes_learned} lớp")
-            encode_model.Incremental_learning(classes_learned)
-            
-            proxy_server.numclass = classes_learned
-            print(f"[DEBUG] Khởi tạo lại proxy_server.model với {classes_learned} lớp")
-            proxy_server.model.Incremental_learning(classes_learned)
-            
-            # Phục hồi trạng thái Proxy Server
-            if checkpoint.get('proxy_best_model_1'):
-                saved_size = checkpoint['proxy_best_model_1']['fc.weight'].shape[0]
-                print(f"[DEBUG] Đang nạp proxy_best_model_1 (size thực tế trong ckpt: {saved_size})")
-                proxy_server.best_model_1 = copy.deepcopy(model_g)
-                # Resize lại cho khớp với size trong checkpoint
-                proxy_server.best_model_1.Incremental_learning(saved_size)
-                proxy_server.best_model_1.load_state_dict(checkpoint['proxy_best_model_1'])
-                
-            if checkpoint.get('proxy_best_model_2'):
-                saved_size = checkpoint['proxy_best_model_2']['fc.weight'].shape[0]
-                print(f"[DEBUG] Đang nạp proxy_best_model_2 (size thực tế trong ckpt: {saved_size})")
-                proxy_server.best_model_2 = copy.deepcopy(model_g)
-                proxy_server.best_model_2.Incremental_learning(saved_size)
-                proxy_server.best_model_2.load_state_dict(checkpoint['proxy_best_model_2'])
-                
             # Phục hồi trạng thái của Clients (quan trọng để không bị quên dữ liệu cũ)
             if 'client_states' in checkpoint:
                 c_states = checkpoint['client_states']
@@ -239,38 +294,80 @@ def main():
                                 args.epochs_local, args.learning_rate, temp_dataset, args.device, encode_model, idx,
                                 args.previous_task_replay_percent, args.seed)
                     models.append(new_model)
-                
-                # Nạp dữ liệu
-                for idx, c_state in enumerate(c_states):
-                    models[idx].exemplar_set = c_state['exemplar_set']
-                    models[idx].learned_classes = c_state['learned_classes']
-                    models[idx].learned_numclass = c_state['learned_numclass']
             
-            print(f"[INFO] Đã nạp thành công. Tiếp tục từ Round {start_round}, Task {old_task_id}")
-            
-            # Nếu chỉ test thì chạy xong rồi thoát
-            if args.test_only:
-                print("[INFO] Chế độ Test-only. Đang tiến hành đánh giá...")
-                eval_device = f"cuda:0" if torch.cuda.is_available() else "cpu"
-                acc, metrics, loss = model_global_eval(model_g, test_dataset, old_task_id, args.task_size, eval_device)
+            # Khởi tạo lại cấu trúc mô hình tăng trưởng nếu cần
+                print(f"[DEBUG] Khởi tạo lại model_g với {classes_learned} lớp")
+                model_g.Incremental_learning(classes_learned)
+                model_g.load_state_dict(checkpoint['model_state_dict'])
                 
-                train_loss_val = checkpoint.get('train_loss', 0.0)
-                res_str = (
-                    'Task: {}, Round: {} | '
-                    'TrainLoss: {:.4f} | EvalLoss: {:.4f} | '
-                    'Acc: {:.2f}% | '
-                    'Macro-F1: {:.2f}% | Weighted-F1: {:.2f}% | Micro-F1: {:.2f}%\n'
-                    'Macro-precision: {:.2f}% | Weighted-precision: {:.2f}% | Micro-precision: {:.2f}%\n'
-                    'Macro-recall: {:.2f}% | Weighted-recall: {:.2f}% | Micro-recall: {:.2f}%'
-                ).format(old_task_id, start_round - 1, train_loss_val, loss,
-                        float(acc), 
-                        metrics['macro']['f1'], metrics['weighted']['f1'], metrics['micro']['f1'],
-                        metrics['macro']['prec'], metrics['weighted']['prec'], metrics['micro']['prec'],
-                        metrics['macro']['rec'], metrics['weighted']['rec'], metrics['micro']['rec'])
-                print(res_str)
-                return
+                print(f"[DEBUG] Khởi tạo lại encode_model với {classes_learned} lớp")
+                encode_model.Incremental_learning(classes_learned)
+                
+                proxy_server.numclass = classes_learned
+                print(f"[DEBUG] Khởi tạo lại proxy_server.model với {classes_learned} lớp")
+                proxy_server.model.Incremental_learning(classes_learned)
+                
+                # Phục hồi trạng thái Proxy Server
+                if checkpoint.get('proxy_best_model_1'):
+                    saved_size = checkpoint['proxy_best_model_1']['fc.weight'].shape[0]
+                    print(f"[DEBUG] Đang nạp proxy_best_model_1 (size thực tế trong ckpt: {saved_size})")
+                    proxy_server.best_model_1 = copy.deepcopy(model_g)
+                    # Resize lại cho khớp với size trong checkpoint
+                    proxy_server.best_model_1.Incremental_learning(saved_size)
+                    proxy_server.best_model_1.load_state_dict(checkpoint['proxy_best_model_1'])
+                    
+                if checkpoint.get('proxy_best_model_2'):
+                    saved_size = checkpoint['proxy_best_model_2']['fc.weight'].shape[0]
+                    print(f"[DEBUG] Đang nạp proxy_best_model_2 (size thực tế trong ckpt: {saved_size})")
+                    proxy_server.best_model_2 = copy.deepcopy(model_g)
+                    proxy_server.best_model_2.Incremental_learning(saved_size)
+                    proxy_server.best_model_2.load_state_dict(checkpoint['proxy_best_model_2'])
+                    
+                # Phục hồi trạng thái của Clients (quan trọng để không bị quên dữ liệu cũ)
+                if 'client_states' in checkpoint:
+                    c_states = checkpoint['client_states']
+                    # Mở rộng danh sách models nếu checkpoint có nhiều client hơn
+                    for idx in range(len(models), len(c_states)):
+                        temp_dataset = train_dataset
+                        new_model = GLFC_model(classes_learned, feature_extractor, args.batch_size, args.task_size, args.memory_size,
+                                    args.epochs_local, args.learning_rate, temp_dataset, args.device, encode_model, idx)
+                        models.append(new_model)
+                    
+                    # Nạp dữ liệu
+                    for idx, c_state in enumerate(c_states):
+                        models[idx].exemplar_set = c_state['exemplar_set']
+                        models[idx].learned_classes = c_state['learned_classes']
+                        models[idx].learned_numclass = c_state['learned_numclass']
+                
+                print(f"[INFO] Đã nạp thành công. Tiếp tục từ Round {start_round}, Task {old_task_id}")
+                
+                # Nếu chỉ test thì chạy xong rồi thoát
+                if args.test_only:
+                    print("[INFO] Chế độ Test-only. Đang tiến hành đánh giá...")
+                    eval_device = f"cuda:0" if torch.cuda.is_available() else "cpu"
+                    acc, metrics, loss = model_global_eval(model_g, test_dataset, old_task_id, args.task_size, eval_device)
+                    
+                    train_loss_val = checkpoint.get('train_loss', 0.0)
+                    res_str = (
+                        'Task: {}, Round: {} | '
+                        'TrainLoss: {:.4f} | EvalLoss: {:.4f} | '
+                        'Acc: {:.2f}% | '
+                        'Macro-F1: {:.2f}% | Weighted-F1: {:.2f}% | Micro-F1: {:.2f}%\n'
+                        'Macro-precision: {:.2f}% | Weighted-precision: {:.2f}% | Micro-precision: {:.2f}%\n'
+                        'Macro-recall: {:.2f}% | Weighted-recall: {:.2f}% | Micro-recall: {:.2f}%'
+                    ).format(old_task_id, start_round - 1, train_loss_val, loss,
+                            float(acc), 
+                            metrics['macro']['f1'], metrics['weighted']['f1'], metrics['micro']['f1'],
+                            metrics['macro']['prec'], metrics['weighted']['prec'], metrics['micro']['prec'],
+                            metrics['macro']['rec'], metrics['weighted']['rec'], metrics['micro']['rec'])
+                    print(res_str)
+                    return
+            except Exception as exc:
+                print(f"[WARN] Không thể nạp checkpoint: {exc}")
+                print("[WARN] Bắt đầu huấn luyện từ đầu.")
         else:
-            print(f"[ERROR] Không tìm thấy checkpoint tại: {args.resume_path}")
+            print(f"[WARN] Không tìm thấy checkpoint tại: {args.resume_path}")
+            print("[WARN] Bắt đầu huấn luyện từ đầu.")
             if args.test_only: return
 
     for ep_g in range(start_round, args.epochs_global):

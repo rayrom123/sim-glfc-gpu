@@ -55,8 +55,14 @@ def main():
         print(f"[INFO] File test: {args.test_path}")
         print(f"[INFO] Checkpoints: {args.checkpoint_dir}")
     else:
-        args.data_root = 'federated_data_final'
-        args.test_path = 'test_data_final/global_test_data.pt'
+        if args.data_root:
+            args.data_root = os.path.dirname(args.data_root) if os.path.isfile(args.data_root) else args.data_root
+        else:
+            args.data_root = 'federated_data_final'
+        if args.test_path:
+            args.test_path = args.test_path if os.path.isfile(args.test_path) else os.path.join(args.test_path, 'global_test_data.pt')
+        else:
+            args.test_path = 'test_data_final/global_test_data.pt'
         args.log_base = args.checkpoint_dir
 
     # Cấu hình mặc định cho Tabular
