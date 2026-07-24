@@ -273,80 +273,66 @@ def main():
             try:
                 print(f"[INFO] Đang nạp checkpoint từ: {args.resume_path}")
                 checkpoint = torch.load(args.resume_path, map_location='cpu', weights_only=False)
-                
+
                 # Cập nhật thông số học tập
                 classes_learned = checkpoint['classes_learned']
                 start_round = checkpoint['round'] + 1
                 old_task_id = checkpoint['task_id']
-                
-            if 'old_client_0' in checkpoint:
-                old_client_0 = checkpoint['old_client_0']
-                old_client_1 = checkpoint['old_client_1']
-                new_client = checkpoint['new_client']
-            
-            # Phục hồi trạng thái của Clients (quan trọng để không bị quên dữ liệu cũ)
-            if 'client_states' in checkpoint:
-                c_states = checkpoint['client_states']
-                # Mở rộng danh sách models nếu checkpoint có nhiều client hơn
-                for idx in range(len(models), len(c_states)):
-                    temp_dataset = train_dataset
-                    new_model = GLFC_model(classes_learned, feature_extractor, args.batch_size, args.task_size, args.memory_size,
-                                args.epochs_local, args.learning_rate, temp_dataset, args.device, encode_model, idx,
-                                args.previous_task_replay_percent, args.seed)
-                    models.append(new_model)
-            
-            # Khởi tạo lại cấu trúc mô hình tăng trưởng nếu cần
+
+                if 'old_client_0' in checkpoint:
+                    old_client_0 = checkpoint['old_client_0']
+                    old_client_1 = checkpoint['old_client_1']
+                    new_client = checkpoint['new_client']
+
+                # Khởi tạo lại cấu trúc mô hình tăng trưởng nếu cần
                 print(f"[DEBUG] Khởi tạo lại model_g với {classes_learned} lớp")
                 model_g.Incremental_learning(classes_learned)
                 model_g.load_state_dict(checkpoint['model_state_dict'])
-                
+
                 print(f"[DEBUG] Khởi tạo lại encode_model với {classes_learned} lớp")
                 encode_model.Incremental_learning(classes_learned)
-                
+
                 proxy_server.numclass = classes_learned
                 print(f"[DEBUG] Khởi tạo lại proxy_server.model với {classes_learned} lớp")
                 proxy_server.model.Incremental_learning(classes_learned)
-                
+
                 # Phục hồi trạng thái Proxy Server
                 if checkpoint.get('proxy_best_model_1'):
                     saved_size = checkpoint['proxy_best_model_1']['fc.weight'].shape[0]
                     print(f"[DEBUG] Đang nạp proxy_best_model_1 (size thực tế trong ckpt: {saved_size})")
                     proxy_server.best_model_1 = copy.deepcopy(model_g)
-                    # Resize lại cho khớp với size trong checkpoint
                     proxy_server.best_model_1.Incremental_learning(saved_size)
                     proxy_server.best_model_1.load_state_dict(checkpoint['proxy_best_model_1'])
-                    
+
                 if checkpoint.get('proxy_best_model_2'):
                     saved_size = checkpoint['proxy_best_model_2']['fc.weight'].shape[0]
                     print(f"[DEBUG] Đang nạp proxy_best_model_2 (size thực tế trong ckpt: {saved_size})")
                     proxy_server.best_model_2 = copy.deepcopy(model_g)
                     proxy_server.best_model_2.Incremental_learning(saved_size)
                     proxy_server.best_model_2.load_state_dict(checkpoint['proxy_best_model_2'])
-                    
+
                 # Phục hồi trạng thái của Clients (quan trọng để không bị quên dữ liệu cũ)
                 if 'client_states' in checkpoint:
                     c_states = checkpoint['client_states']
-                    # Mở rộng danh sách models nếu checkpoint có nhiều client hơn
                     for idx in range(len(models), len(c_states)):
                         temp_dataset = train_dataset
                         new_model = GLFC_model(classes_learned, feature_extractor, args.batch_size, args.task_size, args.memory_size,
-                                    args.epochs_local, args.learning_rate, temp_dataset, args.device, encode_model, idx)
+                                    args.epochs_local, args.learning_rate, temp_dataset, args.device, encode_model, idx,
+                                    args.previous_task_replay_percent, args.seed)
                         models.append(new_model)
-                    
-                    # Nạp dữ liệu
+
                     for idx, c_state in enumerate(c_states):
                         models[idx].exemplar_set = c_state['exemplar_set']
                         models[idx].learned_classes = c_state['learned_classes']
                         models[idx].learned_numclass = c_state['learned_numclass']
-                
+
                 print(f"[INFO] Đã nạp thành công. Tiếp tục từ Round {start_round}, Task {old_task_id}")
-                
-                # Nếu chỉ test thì chạy xong rồi thoát
+
                 if args.test_only:
                     print("[INFO] Chế độ Test-only. Đang tiến hành đánh giá...")
                     eval_device = f"cuda:0" if torch.cuda.is_available() else "cpu"
                     acc, metrics, loss = model_global_eval(model_g, test_dataset, old_task_id, args.task_size, eval_device)
-                    
+
                     train_loss_val = checkpoint.get('train_loss', 0.0)
                     res_str = (
                         'Task: {}, Round: {} | '
@@ -356,7 +342,7 @@ def main():
                         'Macro-precision: {:.2f}% | Weighted-precision: {:.2f}% | Micro-precision: {:.2f}%\n'
                         'Macro-recall: {:.2f}% | Weighted-recall: {:.2f}% | Micro-recall: {:.2f}%'
                     ).format(old_task_id, start_round - 1, train_loss_val, loss,
-                            float(acc), 
+                            float(acc),
                             metrics['macro']['f1'], metrics['weighted']['f1'], metrics['micro']['f1'],
                             metrics['macro']['prec'], metrics['weighted']['prec'], metrics['micro']['prec'],
                             metrics['macro']['rec'], metrics['weighted']['rec'], metrics['micro']['rec'])
@@ -368,7 +354,8 @@ def main():
         else:
             print(f"[WARN] Không tìm thấy checkpoint tại: {args.resume_path}")
             print("[WARN] Bắt đầu huấn luyện từ đầu.")
-            if args.test_only: return
+            if args.test_only:
+                return
 
     for ep_g in range(start_round, args.epochs_global):
         pool_grad = []
