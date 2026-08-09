@@ -50,6 +50,17 @@ python fl_main.py --dataset tabular --model_type cnn --device -1 --tasks_global 
 
 # Option 3: Huấn luyện kỹ (20 round mỗi task, tổng 120 rounds)
 python fl_main.py --dataset tabular --model_type cnn --device -1 --tasks_global 20 --epochs_global 120 --epochs_local 10
+
+# Kaggle IoT100 10-shot preset
+python fl_main.py --dataset tabular --kaggle --data_preset iot100-10shot
+
+# Kaggle IoT100 few-shot preset
+python fl_main.py --dataset tabular --kaggle --data_preset iot100-fewshot
+
+# Equivalent manual paths
+python fl_main.py --dataset tabular --kaggle \
+  --data_root /kaggle/input/datasets/tongxuanvu/iot100client/iot100client_fewshot/federated_data_10shot \
+  --test_path /kaggle/input/datasets/tongxuanvu/iot100client/100client/global_test_data.pt
 ```
 
 ## Performance:

@@ -13,6 +13,7 @@ from tiny_imagenet import *
 from option import args_parser
 import os
 import sys
+import posixpath
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import torch.multiprocessing as mp
 import datetime
@@ -58,6 +59,63 @@ def resolve_test_path(path):
     return path
 
 
+IOT100_BASE_CANDIDATES = [
+    '/kaggle/input/datasets/tongxuanvu/iot100client',
+    '/kaggle/input/iot100client',
+]
+
+IOT100_DATA_PRESETS = {
+    'iot100-full': '100client',
+    'iot100-10shot': 'iot100client_fewshot/federated_data_10shot',
+    'iot100-fewshot': 'iot100client_fewshot/federated_data_fewshot',
+}
+
+
+def infer_iot100_test_path(data_root):
+    if not data_root:
+        return ''
+
+    current = data_root if os.path.isdir(data_root) else os.path.dirname(data_root)
+    checked = set()
+    for _ in range(5):
+        if not current or current in checked:
+            break
+        checked.add(current)
+
+        for candidate in [
+            os.path.join(current, 'global_test_data.pt'),
+            os.path.join(current, '100client', 'global_test_data.pt'),
+        ]:
+            if os.path.exists(candidate):
+                return candidate
+
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+
+    for base in IOT100_BASE_CANDIDATES:
+        candidate = posixpath.join(base, '100client', 'global_test_data.pt')
+        if os.path.exists(candidate):
+            return candidate
+
+    return ''
+
+
+def iot100_preset_paths(preset):
+    if preset not in IOT100_DATA_PRESETS:
+        return []
+
+    relative_data_root = IOT100_DATA_PRESETS[preset]
+    paths = []
+    for base in IOT100_BASE_CANDIDATES:
+        paths.append((
+            posixpath.join(base, relative_data_root),
+            posixpath.join(base, '100client', 'global_test_data.pt'),
+        ))
+    return paths
+
+
 def resolve_kaggle_dataset_paths(args):
     if args.data_root:
         data_root = resolve_data_root(args.data_root)
@@ -69,8 +127,19 @@ def resolve_kaggle_dataset_paths(args):
     else:
         test_path = ''
 
+    if data_root and not test_path:
+        test_path = infer_iot100_test_path(data_root)
+
     if data_root and test_path:
         return data_root, test_path
+
+    if args.data_preset != 'auto':
+        preset_paths = iot100_preset_paths(args.data_preset)
+        for preset_data_root, preset_test_path in preset_paths:
+            if os.path.exists(preset_data_root):
+                return preset_data_root, preset_test_path
+        if preset_paths:
+            return preset_paths[0]
 
     if args.client_dataset == '100':
         candidates = [
@@ -90,6 +159,12 @@ def resolve_kaggle_dataset_paths(args):
             '/kaggle/input/datasets/npngn123/data-iot-200-client/CICIoT_label_skew_200_clients_bounded_nested_original_order_from_pt',
             '/kaggle/input/datasets/npngn123/glfc-data3',
             '/kaggle/input/datasets/npngn123/glfc-data',
+            '/kaggle/input/datasets/tongxuanvu/iot100client/100client',
+            '/kaggle/input/datasets/tongxuanvu/iot100client/iot100client_fewshot/federated_data_10shot',
+            '/kaggle/input/datasets/tongxuanvu/iot100client/iot100client_fewshot/federated_data_fewshot',
+            '/kaggle/input/iot100client/100client',
+            '/kaggle/input/iot100client/iot100client_fewshot/federated_data_10shot',
+            '/kaggle/input/iot100client/iot100client_fewshot/federated_data_fewshot',
             '/kaggle/input/glfc-data',
             '/kaggle/input',
         ]
@@ -105,6 +180,8 @@ def resolve_kaggle_dataset_paths(args):
                 for test_candidate in [
                     os.path.join(candidate, 'global_test_data.pt'),
                     os.path.join(os.path.dirname(candidate), 'global_test_data.pt'),
+                    os.path.join(os.path.dirname(candidate), '100client', 'global_test_data.pt'),
+                    os.path.join(os.path.dirname(os.path.dirname(candidate)), '100client', 'global_test_data.pt'),
                     os.path.join(candidate, 'test_data.pt'),
                 ]:
                     if os.path.exists(test_candidate):

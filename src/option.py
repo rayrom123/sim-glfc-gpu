@@ -23,6 +23,13 @@ def args_parser():
     parser.add_argument('--data_root', type=str, default='', help='path to federated data directory containing client_x_task_y.pt files')
     parser.add_argument('--test_path', type=str, default='', help='path to global test data .pt file')
     parser.add_argument('--client_dataset', type=str, default='auto', choices=['auto', '100', '200'], help='select the IoT federated dataset size to use')
+    parser.add_argument(
+        '--data_preset',
+        type=str,
+        default='auto',
+        choices=['auto', 'iot100-full', 'iot100-10shot', 'iot100-fewshot'],
+        help='preconfigured Kaggle IoT data path; explicit --data_root/--test_path still take priority'
+    )
     parser.add_argument('--epochs_global', type=int, default=100, help='total number of global rounds')
     parser.add_argument('--tasks_global', type=int, default=10, help='total number of tasks')
     parser.add_argument('--model_type', type=str, default='mlp', choices=['mlp', 'cnn'], help="Architecture for tabular data")
