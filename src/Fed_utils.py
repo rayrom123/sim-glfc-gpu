@@ -1,6 +1,7 @@
 import torch.nn as nn
 import torch
 import copy
+import os
 from torchvision import transforms
 import numpy as np
 from torch.nn import functional as F
@@ -185,7 +186,56 @@ def compute_metrics(all_preds, all_labels):
     }
     return metrics
 
-def model_global_eval(model_g, test_dataset, task_id, task_size, device, eval_labels=None):
+def save_confusion_matrix(all_preds, all_labels, output_path, title='Confusion Matrix'):
+    all_preds = all_preds.cpu().long().numpy()
+    all_labels = all_labels.cpu().long().numpy()
+    labels = sorted(set(all_labels.tolist()) | set(all_preds.tolist()))
+    if len(labels) == 0:
+        return
+
+    label_to_index = {label: idx for idx, label in enumerate(labels)}
+    cm = np.zeros((len(labels), len(labels)), dtype=np.int64)
+    for true_label, pred_label in zip(all_labels, all_preds):
+        cm[label_to_index[int(true_label)], label_to_index[int(pred_label)]] += 1
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    csv_path = os.path.splitext(output_path)[0] + '.csv'
+    header = 'true\\pred,' + ','.join(str(label) for label in labels)
+    rows = [
+        str(label) + ',' + ','.join(str(value) for value in cm[row_idx])
+        for row_idx, label in enumerate(labels)
+    ]
+    with open(csv_path, 'w', encoding='utf-8') as f:
+        f.write(header + '\n')
+        f.write('\n'.join(rows))
+
+    row_sums = cm.sum(axis=1, keepdims=True)
+    cm_norm = np.divide(cm, row_sums, out=np.zeros_like(cm, dtype=np.float64), where=row_sums != 0)
+
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    fig_size = max(8, len(labels) * 0.35)
+    fig, ax = plt.subplots(figsize=(fig_size, fig_size))
+    im = ax.imshow(cm_norm, interpolation='nearest', cmap='Blues', vmin=0.0, vmax=1.0)
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label='Row-normalized recall')
+    ax.set_title(title)
+    ax.set_xlabel('Predicted label')
+    ax.set_ylabel('True label')
+    ax.set_xticks(np.arange(len(labels)))
+    ax.set_yticks(np.arange(len(labels)))
+    ax.set_xticklabels(labels, rotation=90, fontsize=7)
+    ax.set_yticklabels(labels, fontsize=7)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=200)
+    plt.close(fig)
+    print(f"   [EVAL] Confusion matrix saved to: {output_path}")
+    print(f"   [EVAL] Confusion matrix counts saved to: {csv_path}")
+
+
+def model_global_eval(model_g, test_dataset, task_id, task_size, device, eval_labels=None,
+                      confusion_matrix_path=None, confusion_matrix_title=None):
     """Evaluate global model. Returns (accuracy, precision, recall, f1, avg_loss)."""
     model_g = model_to_device(model_g, False, device)
     model_g.eval()
@@ -227,6 +277,9 @@ def model_global_eval(model_g, test_dataset, task_id, task_size, device, eval_la
     all_labels = torch.cat(all_labels) if all_labels else torch.tensor([])
 
     metrics = compute_metrics(all_preds, all_labels) if total > 0 else None
+    if total > 0 and confusion_matrix_path:
+        title = confusion_matrix_title or f'Confusion Matrix - Task {task_id}'
+        save_confusion_matrix(all_preds, all_labels, confusion_matrix_path, title=title)
 
     model_g.train()
     return accuracy, metrics, avg_loss

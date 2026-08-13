@@ -591,6 +591,14 @@ def main():
         proxy_server.model = copy.deepcopy(model_g)
         proxy_server.dataloader(pool_grad)
 
+        is_task_end = ((ep_g + 1) % args.tasks_global == 0) or (ep_g == args.epochs_global - 1)
+        confusion_matrix_path = None
+        confusion_matrix_title = None
+        if is_task_end:
+            cm_dir = osp.join(output_dir, 'confusion_matrix')
+            confusion_matrix_path = osp.join(cm_dir, f'task_{task_id}_round_{ep_g}.png')
+            confusion_matrix_title = f'Task {task_id} - Round {ep_g}'
+
         if args.dataset == 'tabular':
             # Eval trên classes đã học đến task hiện tại (không phải toàn bộ 34)
             eval_device = f"cuda:0" if num_gpus > 0 else "cpu"
@@ -598,11 +606,16 @@ def main():
             if tabular_label_plan and task_id < len(tabular_label_plan['learned_labels_by_task']):
                 eval_labels = tabular_label_plan['learned_labels_by_task'][task_id]
             acc_global, metrics, eval_loss = model_global_eval(
-                model_g, test_dataset, task_id, args.task_size, eval_device, eval_labels=eval_labels)
+                model_g, test_dataset, task_id, args.task_size, eval_device,
+                eval_labels=eval_labels,
+                confusion_matrix_path=confusion_matrix_path,
+                confusion_matrix_title=confusion_matrix_title)
         else:
             eval_device = f"cuda:0" if num_gpus > 0 else "cpu"
             acc_global, metrics, eval_loss = model_global_eval(
-                model_g, test_dataset, task_id, args.task_size, eval_device)
+                model_g, test_dataset, task_id, args.task_size, eval_device,
+                confusion_matrix_path=confusion_matrix_path,
+                confusion_matrix_title=confusion_matrix_title)
 
         log_str = (
             'Task: {}, Round: {} | '
