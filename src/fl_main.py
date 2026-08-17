@@ -40,6 +40,12 @@ def resolve_data_root(path):
     return path
 
 
+def has_client_task_files(path):
+    if not path or not os.path.isdir(path):
+        return False
+    return any(f.startswith('client') and '_task' in f and f.endswith('.pt') for f in os.listdir(path))
+
+
 def resolve_test_path(path):
     if not path:
         return ''
@@ -114,6 +120,39 @@ def iot100_preset_paths(preset):
             posixpath.join(base, '100client', 'global_test_data.pt'),
         ))
     return paths
+
+
+def infer_iot100_base_data_root(data_root):
+    if not data_root:
+        return ''
+
+    current = data_root if os.path.isdir(data_root) else os.path.dirname(data_root)
+    checked = set()
+    for _ in range(5):
+        if not current or current in checked:
+            break
+        checked.add(current)
+
+        candidate = os.path.join(current, '100client')
+        if has_client_task_files(candidate):
+            return candidate
+
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+
+    return ''
+
+
+def infer_tabular_auxiliary_roots(args):
+    if args.data_preset not in {'iot100-10shot', 'iot100-fewshot'} and 'iot100client_fewshot' not in args.data_root:
+        return []
+
+    base_root = infer_iot100_base_data_root(args.data_root)
+    if base_root:
+        return [base_root]
+    return []
 
 
 def resolve_kaggle_dataset_paths(args):
@@ -197,6 +236,7 @@ def resolve_kaggle_dataset_paths(args):
 def main():
     args = args_parser()
     tabular_label_plan = None
+    tabular_auxiliary_roots = []
 
     ## parameters for learning
     if args.dataset == 'tabular':
@@ -252,7 +292,11 @@ def main():
         if args.test_path:
             args.test_path = resolve_test_path(args.test_path)
 
-        tabular_label_plan = discover_label_plan(args.data_root)
+        tabular_auxiliary_roots = infer_tabular_auxiliary_roots(args)
+        if tabular_auxiliary_roots:
+            print(f"[INFO] Tabular auxiliary data roots: {tabular_auxiliary_roots}")
+
+        tabular_label_plan = discover_label_plan(args.data_root, tabular_auxiliary_roots)
         if tabular_label_plan['output_dims']:
             args.numclass = tabular_label_plan['output_dims'][0]
             args.task_size = args.numclass
@@ -308,7 +352,13 @@ def main():
         test_dataset = train_dataset
 
     elif args.dataset == 'tabular':
-        test_dataset = FederatedTabularDataset(client_id=0, root_dir=args.data_root, test_file=args.test_path, test=True)
+        test_dataset = FederatedTabularDataset(
+            client_id=0,
+            root_dir=args.data_root,
+            test_file=args.test_path,
+            test=True,
+            auxiliary_roots=tabular_auxiliary_roots,
+        )
         if tabular_label_plan and tabular_label_plan['learned_labels_by_task']:
             test_dataset.getTestData({'labels': tabular_label_plan['learned_labels_by_task'][0]})
         else:
@@ -327,7 +377,12 @@ def main():
 
     for i in range(args.num_clients):
         if args.dataset == 'tabular':
-            train_dataset = FederatedTabularDataset(client_id=i, root_dir=args.data_root, test_file=args.test_path)
+            train_dataset = FederatedTabularDataset(
+                client_id=i,
+                root_dir=args.data_root,
+                test_file=args.test_path,
+                auxiliary_roots=tabular_auxiliary_roots,
+            )
         model_temp = GLFC_model(args.numclass, feature_extractor, args.batch_size, args.task_size, args.memory_size,
                     args.epochs_local, args.learning_rate, train_dataset, args.device, encode_model, i,
                     args.previous_task_replay_percent, args.seed)
@@ -431,8 +486,14 @@ def main():
                     eval_labels = None
                     if tabular_label_plan and old_task_id < len(tabular_label_plan['learned_labels_by_task']):
                         eval_labels = tabular_label_plan['learned_labels_by_task'][old_task_id]
+                    cm_dir = osp.join(output_dir, 'confusion_matrix_from_checkpoint')
+                    cm_path = osp.join(cm_dir, f'task_{old_task_id}_round_{start_round - 1}.png')
+                    cm_title = f'Task {old_task_id} - Round {start_round - 1} (checkpoint)'
                     acc, metrics, loss = model_global_eval(
-                        model_g, test_dataset, old_task_id, args.task_size, eval_device, eval_labels=eval_labels)
+                        model_g, test_dataset, old_task_id, args.task_size, eval_device,
+                        eval_labels=eval_labels,
+                        confusion_matrix_path=cm_path,
+                        confusion_matrix_title=cm_title)
 
                     train_loss_val = checkpoint.get('train_loss', 0.0)
                     res_str = (
@@ -486,7 +547,12 @@ def main():
                 if task_id < len(tabular_label_plan['output_dims']):
                     classes_learned = tabular_label_plan['output_dims'][task_id]
                 else:
-                    classes_learned = max(classes_learned, args.task_size * (task_id + 1))
+                    raise ValueError(
+                        f"Requested tabular task index {task_id}, but data only provides "
+                        f"{len(tabular_label_plan['output_dims'])} tasks: "
+                        f"{tabular_label_plan['task_ids']}. Check --epochs_global/--tasks_global "
+                        "or the selected data preset."
+                    )
             else:
                 classes_learned += args.task_size
             model_g.Incremental_learning(classes_learned)

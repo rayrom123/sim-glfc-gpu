@@ -25,35 +25,47 @@ def task_id_for_index(task_ids, task_index):
     return task_index + 1
 
 
-def discover_task_ids(root_dir):
-    if not root_dir or not osp.isdir(root_dir):
+def candidate_roots(root_dir, auxiliary_roots=None):
+    roots = []
+    for root in [root_dir] + list(auxiliary_roots or []):
+        if root and osp.isdir(root) and root not in roots:
+            roots.append(root)
+    return roots
+
+
+def discover_task_ids(root_dir, auxiliary_roots=None):
+    roots = candidate_roots(root_dir, auxiliary_roots)
+    if not roots:
         return []
 
     task_ids = set()
-    for filename in os.listdir(root_dir):
-        match = CLIENT_TASK_RE.match(filename)
-        if match:
-            task_ids.add(int(match.group(2)))
+    for root in roots:
+        for filename in os.listdir(root):
+            match = CLIENT_TASK_RE.match(filename)
+            if match:
+                task_ids.add(int(match.group(2)))
     return sorted(task_ids)
 
 
-def discover_label_plan(root_dir):
-    task_ids = discover_task_ids(root_dir)
+def discover_label_plan(root_dir, auxiliary_roots=None):
+    roots = candidate_roots(root_dir, auxiliary_roots)
+    task_ids = discover_task_ids(root_dir, auxiliary_roots)
     labels_by_task = []
 
     for task_id in task_ids:
         labels = set()
-        for filename in os.listdir(root_dir):
-            match = CLIENT_TASK_RE.match(filename)
-            if not match or int(match.group(2)) != task_id:
-                continue
+        for root in roots:
+            for filename in os.listdir(root):
+                match = CLIENT_TASK_RE.match(filename)
+                if not match or int(match.group(2)) != task_id:
+                    continue
 
-            filepath = osp.join(root_dir, filename)
-            obj = torch.load(filepath, map_location='cpu', weights_only=False)
-            _, targets = extract_xy(obj)
-            if len(targets) == 0:
-                continue
-            labels.update(int(x) for x in torch.unique(torch.as_tensor(targets)).tolist())
+                filepath = osp.join(root, filename)
+                obj = torch.load(filepath, map_location='cpu', weights_only=False)
+                _, targets = extract_xy(obj)
+                if len(targets) == 0:
+                    continue
+                labels.update(int(x) for x in torch.unique(torch.as_tensor(targets)).tolist())
 
         labels_by_task.append(sorted(labels))
 
@@ -74,9 +86,11 @@ def discover_label_plan(root_dir):
     }
 
 class FederatedTabularDataset(Dataset):
-    def __init__(self, client_id, root_dir='../federated_data', test_file='../30_test_data.pt', transform=None, test=False):
+    def __init__(self, client_id, root_dir='../federated_data', test_file='../30_test_data.pt',
+                 transform=None, test=False, auxiliary_roots=None):
         self.client_id = client_id
         self.root_dir = root_dir
+        self.auxiliary_roots = list(auxiliary_roots or [])
         self.test_file = test_file
         self.transform = transform
         self.Test = test
@@ -87,7 +101,7 @@ class FederatedTabularDataset(Dataset):
         self.TestLabels = np.array([])
         self.current_task = 0
         self.current_task_index = 0
-        self.task_ids = discover_task_ids(root_dir)
+        self.task_ids = discover_task_ids(root_dir, self.auxiliary_roots)
         self.last_replay_counts = {}
 
     def concatenate(self, datas, labels):
@@ -130,11 +144,16 @@ class FederatedTabularDataset(Dataset):
 
     def load_task(self, task_id):
         # Handle both client_x_task_y.pt and clientx_tasky.pt (for compatibility)
-        filepath = osp.join(self.root_dir, f'client_{self.client_id}_task_{task_id}.pt')
-        if not osp.exists(filepath):
-            filepath = osp.join(self.root_dir, f'client{self.client_id}_task{task_id}.pt')
-            
-        if not osp.exists(filepath):
+        filepath = None
+        for root in candidate_roots(self.root_dir, self.auxiliary_roots):
+            candidate = osp.join(root, f'client_{self.client_id}_task_{task_id}.pt')
+            if not osp.exists(candidate):
+                candidate = osp.join(root, f'client{self.client_id}_task{task_id}.pt')
+            if osp.exists(candidate):
+                filepath = candidate
+                break
+
+        if filepath is None:
             return torch.tensor([]), torch.tensor([])
             
         obj = torch.load(filepath, map_location='cpu', weights_only=False)

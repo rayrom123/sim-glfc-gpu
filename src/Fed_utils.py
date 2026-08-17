@@ -186,24 +186,37 @@ def compute_metrics(all_preds, all_labels):
     }
     return metrics
 
-def save_confusion_matrix(all_preds, all_labels, output_path, title='Confusion Matrix'):
+def save_confusion_matrix(all_preds, all_labels, output_path, title='Confusion Matrix', matrix_labels=None):
     all_preds = all_preds.cpu().long().numpy()
     all_labels = all_labels.cpu().long().numpy()
-    labels = sorted(set(all_labels.tolist()) | set(all_preds.tolist()))
-    if len(labels) == 0:
+    if matrix_labels is None:
+        true_labels = sorted(set(all_labels.tolist()) | set(all_preds.tolist()))
+        pred_labels = true_labels
+    else:
+        true_labels = sorted(set(int(label) for label in matrix_labels))
+        invalid_pred_exists = any(int(pred_label) not in true_labels for pred_label in all_preds.tolist())
+        pred_labels = true_labels + (['other'] if invalid_pred_exists else [])
+    if len(true_labels) == 0 or len(pred_labels) == 0:
         return
 
-    label_to_index = {label: idx for idx, label in enumerate(labels)}
-    cm = np.zeros((len(labels), len(labels)), dtype=np.int64)
+    true_label_to_index = {label: idx for idx, label in enumerate(true_labels)}
+    pred_label_to_index = {label: idx for idx, label in enumerate(pred_labels)}
+    cm = np.zeros((len(true_labels), len(pred_labels)), dtype=np.int64)
     for true_label, pred_label in zip(all_labels, all_preds):
-        cm[label_to_index[int(true_label)], label_to_index[int(pred_label)]] += 1
+        true_label = int(true_label)
+        pred_label = int(pred_label)
+        if true_label not in true_label_to_index:
+            continue
+        pred_key = pred_label if pred_label in pred_label_to_index else 'other'
+        if pred_key in pred_label_to_index:
+            cm[true_label_to_index[true_label], pred_label_to_index[pred_key]] += 1
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     csv_path = os.path.splitext(output_path)[0] + '.csv'
-    header = 'true\\pred,' + ','.join(str(label) for label in labels)
+    header = 'true\\pred,' + ','.join(str(label) for label in pred_labels)
     rows = [
         str(label) + ',' + ','.join(str(value) for value in cm[row_idx])
-        for row_idx, label in enumerate(labels)
+        for row_idx, label in enumerate(true_labels)
     ]
     with open(csv_path, 'w', encoding='utf-8') as f:
         f.write(header + '\n')
@@ -216,17 +229,18 @@ def save_confusion_matrix(all_preds, all_labels, output_path, title='Confusion M
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
 
-    fig_size = max(8, len(labels) * 0.35)
-    fig, ax = plt.subplots(figsize=(fig_size, fig_size))
+    fig_width = max(8, len(pred_labels) * 0.35)
+    fig_height = max(8, len(true_labels) * 0.35)
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
     im = ax.imshow(cm_norm, interpolation='nearest', cmap='Blues', vmin=0.0, vmax=1.0)
     fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label='Row-normalized recall')
     ax.set_title(title)
     ax.set_xlabel('Predicted label')
     ax.set_ylabel('True label')
-    ax.set_xticks(np.arange(len(labels)))
-    ax.set_yticks(np.arange(len(labels)))
-    ax.set_xticklabels(labels, rotation=90, fontsize=7)
-    ax.set_yticklabels(labels, fontsize=7)
+    ax.set_xticks(np.arange(len(pred_labels)))
+    ax.set_yticks(np.arange(len(true_labels)))
+    ax.set_xticklabels(pred_labels, rotation=90, fontsize=7)
+    ax.set_yticklabels(true_labels, fontsize=7)
     fig.tight_layout()
     fig.savefig(output_path, dpi=200)
     plt.close(fig)
@@ -242,9 +256,11 @@ def model_global_eval(model_g, test_dataset, task_id, task_size, device, eval_la
     test_range = [0, task_size * (task_id + 1)]
     if eval_labels is None:
         test_dataset.getTestData(test_range)
+        valid_eval_labels = None
     else:
         eval_labels = sorted(set(int(label) for label in eval_labels))
         test_dataset.getTestData({'labels': eval_labels})
+        valid_eval_labels = eval_labels
     print(f"   [EVAL] Đang kiểm tra trên các lớp thuộc phạm vi: {test_range}")
     if eval_labels is not None:
         print(f"   [EVAL] Labels: {eval_labels}")
@@ -279,7 +295,13 @@ def model_global_eval(model_g, test_dataset, task_id, task_size, device, eval_la
     metrics = compute_metrics(all_preds, all_labels) if total > 0 else None
     if total > 0 and confusion_matrix_path:
         title = confusion_matrix_title or f'Confusion Matrix - Task {task_id}'
-        save_confusion_matrix(all_preds, all_labels, confusion_matrix_path, title=title)
+        save_confusion_matrix(
+            all_preds,
+            all_labels,
+            confusion_matrix_path,
+            title=title,
+            matrix_labels=valid_eval_labels,
+        )
 
     model_g.train()
     return accuracy, metrics, avg_loss
