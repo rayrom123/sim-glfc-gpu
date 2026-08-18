@@ -271,6 +271,7 @@ def model_global_eval(model_g, test_dataset, task_id, task_size, device, eval_la
     total_loss = 0.0
     num_batches = 0
     all_preds, all_labels = [], []
+    output_dim = None
 
     for setp, (indexs, imgs, labels) in enumerate(test_loader):
         # Sử dụng .to() để linh hoạt cho cả CPU/GPU
@@ -278,6 +279,7 @@ def model_global_eval(model_g, test_dataset, task_id, task_size, device, eval_la
         with torch.no_grad():
             outputs = model_g(imgs)
             loss = criterion(outputs, labels)
+        output_dim = outputs.shape[1]
         predicts = torch.max(outputs, dim=1)[1]
         correct     += (predicts.cpu() == labels.cpu()).sum()
         total       += len(labels)
@@ -295,12 +297,13 @@ def model_global_eval(model_g, test_dataset, task_id, task_size, device, eval_la
     metrics = compute_metrics(all_preds, all_labels) if total > 0 else None
     if total > 0 and confusion_matrix_path:
         title = confusion_matrix_title or f'Confusion Matrix - Task {task_id}'
+        matrix_labels = list(range(output_dim)) if output_dim is not None else valid_eval_labels
         save_confusion_matrix(
             all_preds,
             all_labels,
             confusion_matrix_path,
             title=title,
-            matrix_labels=valid_eval_labels,
+            matrix_labels=matrix_labels,
         )
 
     model_g.train()
