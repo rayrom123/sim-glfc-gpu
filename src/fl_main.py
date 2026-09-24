@@ -272,7 +272,8 @@ def main():
             
             args.data_root, args.test_path = resolve_kaggle_dataset_paths(args)
             args.log_base  = '/kaggle/working/training_log'
-            args.checkpoint_dir = '/kaggle/working/checkpoints'
+            if not args.checkpoint_dir:
+                args.checkpoint_dir = '/kaggle/working/checkpoints'
             print(f"[INFO] Đã chọn dữ liệu tại: {args.data_root}")
             print(f"[INFO] Đã chọn file test tại: {args.test_path}")
         else:
@@ -285,7 +286,8 @@ def main():
             else:
                 args.test_path = 'test_data_final/global_test_data.pt'
             args.log_base  = './training_log'
-            args.checkpoint_dir = './checkpoints'
+            if not args.checkpoint_dir:
+                args.checkpoint_dir = './checkpoints'
 
         if args.data_root:
             args.data_root = resolve_data_root(args.data_root)
@@ -477,6 +479,12 @@ def main():
                         models[idx].exemplar_set = c_state['exemplar_set']
                         models[idx].learned_classes = c_state['learned_classes']
                         models[idx].learned_numclass = c_state['learned_numclass']
+                        for state_name in [
+                            'task_id_old', 'current_class', 'last_class',
+                            'last_entropy', 'signal', 'numclass'
+                        ]:
+                            if state_name in c_state:
+                                setattr(models[idx], state_name, c_state[state_name])
 
                 print(f"[INFO] Đã nạp thành công. Tiếp tục từ Round {start_round}, Task {old_task_id}")
 
@@ -596,8 +604,8 @@ def main():
         model_g_state = model_g.state_dict()
         
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            # Map index -> GPU ID
-            futures = []
+            # Send one batch to each worker instead of pickling 100 separate jobs.
+            client_batches = [[] for _ in range(max_workers)]
             for i_select, idx in enumerate(clients_index):
                 client_obj = models[idx]
                 # Đồng bộ kiến trúc mô hình với Global cho tất cả Client được chọn
@@ -613,40 +621,55 @@ def main():
                         gpu_id = device_ids[i_select % num_gpus]
                 else:
                     gpu_id = -1
-                
-                futures.append(executor.submit(local_train_step, models[idx], idx, model_g_state, task_id, model_old, ep_g, idx in old_client_0, gpu_id, is_task_change))
+
+                worker_slot = i_select % max_workers
+                client_batches[worker_slot].append((
+                    models[idx], idx, model_g_state, task_id, model_old,
+                    ep_g, idx in old_client_0, gpu_id, is_task_change
+                ))
+
+            futures = [
+                executor.submit(local_train_batch, batch)
+                for batch in client_batches if batch
+            ]
 
             # Chờ và thu thập kết quả trả về
             for future in as_completed(futures):
-                res = future.result()
-                c_idx = res['index']
-                
-                # Cập nhật kết quả vào danh sách tổng
-                w_local.append(res['state_dict'])
-                train_losses.append(res['train_loss'])
-                
-                # Cập nhật Grad pool để reconstruction ở Server
-                if res['proto_grad'] is not None:
-                    for pg in res['proto_grad']:
-                        pool_grad.append(pg)
-                
-                # QUAN TRỌNG: Cập nhật lại trạng thái đồng bộ (Exemplars, Classes) cho đối tượng Client cha
-                models[c_idx].exemplar_set = res['exemplar_set']
-                models[c_idx].learned_classes = res['learned_classes']
-                models[c_idx].learned_numclass = res['learned_numclass']
-                models[c_idx].has_data = res['has_data']
-                
-                if not res['has_data']:
-                    print(f"   [INFO] Client {c_idx} skipping local training (no data for Task {task_id+1})")
-                else:
-                    print(f"   [DONE] Client {c_idx} finished local training.")
+                for res in future.result():
+                    c_idx = res['index']
+
+                    # Cập nhật kết quả vào danh sách tổng
+                    w_local.append(res['state_dict'])
+                    train_losses.append(res['train_loss'])
+
+                    # Cập nhật Grad pool để reconstruction ở Server
+                    if res['proto_grad'] is not None:
+                        for pg in res['proto_grad']:
+                            pool_grad.append(pg)
+
+                    # Đồng bộ trạng thái client từ worker về tiến trình chính.
+                    models[c_idx].exemplar_set = res['exemplar_set']
+                    models[c_idx].learned_classes = res['learned_classes']
+                    models[c_idx].learned_numclass = res['learned_numclass']
+                    models[c_idx].has_data = res['has_data']
+                    for state_name in [
+                        'task_id_old', 'current_class', 'last_class',
+                        'last_entropy', 'signal', 'numclass'
+                    ]:
+                        setattr(models[c_idx], state_name, res[state_name])
+
+                    if not res['has_data']:
+                        print(f"   [INFO] Client {c_idx} skipping local training (no data for Task {task_id+1})")
+                    else:
+                        print(f"   [DONE] Client {c_idx} finished local training.")
 
         avg_train_loss = sum(train_losses) / max(len(train_losses), 1)
 
         ## every participant save their current training data as exemplar set
-        print('every participant start updating their exemplar set and old model...')
-        participant_exemplar_storing(models, num_clients, model_g, old_client_0, task_id, clients_index)
-        print('updating finishes')
+        if args.dataset != 'tabular':
+            print('every participant start updating their exemplar set and old model...')
+            participant_exemplar_storing(models, num_clients, model_g, old_client_0, task_id, clients_index)
+            print('updating finishes')
 
         print('federated aggregation...')
         w_g_new = FedAvg(w_local)
@@ -665,36 +688,45 @@ def main():
             confusion_matrix_path = osp.join(cm_dir, f'task_{task_id}_round_{ep_g}.png')
             confusion_matrix_title = f'Task {task_id} - Round {ep_g}'
 
-        if args.dataset == 'tabular':
-            # Eval trên classes đã học đến task hiện tại (không phải toàn bộ 34)
+        should_eval = is_task_end or not args.eval_task_end_only
+        if should_eval:
             eval_device = f"cuda:0" if num_gpus > 0 else "cpu"
-            eval_labels = None
-            if tabular_label_plan and task_id < len(tabular_label_plan['learned_labels_by_task']):
-                eval_labels = tabular_label_plan['learned_labels_by_task'][task_id]
-            acc_global, metrics, eval_loss = model_global_eval(
-                model_g, test_dataset, task_id, args.task_size, eval_device,
-                eval_labels=eval_labels,
-                confusion_matrix_path=confusion_matrix_path,
-                confusion_matrix_title=confusion_matrix_title)
-        else:
-            eval_device = f"cuda:0" if num_gpus > 0 else "cpu"
-            acc_global, metrics, eval_loss = model_global_eval(
-                model_g, test_dataset, task_id, args.task_size, eval_device,
-                confusion_matrix_path=confusion_matrix_path,
-                confusion_matrix_title=confusion_matrix_title)
+            if args.dataset == 'tabular':
+                # Eval trên classes đã học đến task hiện tại (không phải toàn bộ 34)
+                eval_labels = None
+                if tabular_label_plan and task_id < len(tabular_label_plan['learned_labels_by_task']):
+                    eval_labels = tabular_label_plan['learned_labels_by_task'][task_id]
+                acc_global, metrics, eval_loss = model_global_eval(
+                    model_g, test_dataset, task_id, args.task_size, eval_device,
+                    eval_labels=eval_labels,
+                    confusion_matrix_path=confusion_matrix_path,
+                    confusion_matrix_title=confusion_matrix_title)
+            else:
+                acc_global, metrics, eval_loss = model_global_eval(
+                    model_g, test_dataset, task_id, args.task_size, eval_device,
+                    confusion_matrix_path=confusion_matrix_path,
+                    confusion_matrix_title=confusion_matrix_title)
 
-        log_str = (
-            'Task: {}, Round: {} | '
-            'TrainLoss: {:.4f} | EvalLoss: {:.4f} | '
-            'Acc: {:.2f}% | '
-            'Macro-F1: {:.2f}% | Weighted-F1: {:.2f}% | Micro-F1: {:.2f}%\n'
-            'Macro-precision: {:.2f}% | Weighted-precision: {:.2f}% | Micro-precision: {:.2f}%\n'
-            'Macro-recall: {:.2f}% | Weighted-recall: {:.2f}% | Micro-recall: {:.2f}%'
-        ).format(task_id, ep_g, avg_train_loss, eval_loss,
-                float(acc_global), 
-                metrics['macro']['f1'], metrics['weighted']['f1'], metrics['micro']['f1'],
-                metrics['macro']['prec'], metrics['weighted']['prec'], metrics['micro']['prec'],
-                metrics['macro']['rec'], metrics['weighted']['rec'], metrics['micro']['rec'])
+            log_str = (
+                'Task: {}, Round: {} | '
+                'TrainLoss: {:.4f} | EvalLoss: {:.4f} | '
+                'Acc: {:.2f}% | '
+                'Macro-F1: {:.2f}% | Weighted-F1: {:.2f}% | Micro-F1: {:.2f}%\n'
+                'Macro-precision: {:.2f}% | Weighted-precision: {:.2f}% | Micro-precision: {:.2f}%\n'
+                'Macro-recall: {:.2f}% | Weighted-recall: {:.2f}% | Micro-recall: {:.2f}%'
+            ).format(task_id, ep_g + 1, avg_train_loss, eval_loss,
+                    float(acc_global),
+                    metrics['macro']['f1'], metrics['weighted']['f1'], metrics['micro']['f1'],
+                    metrics['macro']['prec'], metrics['weighted']['prec'], metrics['micro']['prec'],
+                    metrics['macro']['rec'], metrics['weighted']['rec'], metrics['micro']['rec'])
+        else:
+            acc_global = None
+            metrics = None
+            eval_loss = None
+            log_str = (
+                'Task: {}, Round: {} | TrainLoss: {:.4f} | '
+                'Eval: skipped (task-end only)'
+            ).format(task_id, ep_g + 1, avg_train_loss)
         out_file.write(log_str + '\n')
         out_file.flush()
         print(log_str)
@@ -703,7 +735,7 @@ def main():
         # Lưu Checkpoint sau mỗi Round (hoặc theo interval)
         if (ep_g + 1) % args.save_interval == 0:
             os.makedirs(args.checkpoint_dir, exist_ok=True)
-            checkpoint_path = os.path.join(args.checkpoint_dir, f'checkpoint_round_{ep_g}.pt')
+            checkpoint_path = os.path.join(args.checkpoint_dir, f'checkpoint_round_{ep_g + 1:03d}.pt')
             # Lưu cả bản "latest" để dễ resume
             latest_path = os.path.join(args.checkpoint_dir, 'checkpoint_latest.pt')
             
@@ -713,6 +745,12 @@ def main():
                     'exemplar_set': m.exemplar_set,
                     'learned_classes': m.learned_classes,
                     'learned_numclass': m.learned_numclass,
+                    'task_id_old': m.task_id_old,
+                    'current_class': m.current_class,
+                    'last_class': m.last_class,
+                    'last_entropy': m.last_entropy,
+                    'signal': m.signal,
+                    'numclass': m.numclass,
                 })
 
             state = {
@@ -722,7 +760,7 @@ def main():
                 'classes_learned': classes_learned,
                 'train_loss': avg_train_loss,
                 'eval_loss': eval_loss,
-                'acc': float(acc_global),
+                'acc': float(acc_global) if acc_global is not None else None,
                 'metrics': metrics,
                 'args': args,
                 'client_states': client_states,
@@ -733,7 +771,12 @@ def main():
                 'new_client': new_client
             }
             torch.save(state, checkpoint_path)
-            torch.save(state, latest_path)
+            try:
+                if os.path.lexists(latest_path):
+                    os.unlink(latest_path)
+                os.link(checkpoint_path, latest_path)
+            except OSError:
+                torch.save(state, latest_path)
             print(f"   [CHECKPOINT] Đã lưu mô hình tại: {checkpoint_path}")
 
 if __name__ == '__main__':

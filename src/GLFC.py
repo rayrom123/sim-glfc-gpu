@@ -112,7 +112,6 @@ class GLFC_model:
             if len(targets) > 0:
                 self.has_data = True
                 self.train_dataset.set_task(task_id_new)
-                self.train_dataset.getTrainData(self.current_class, [], [])
                 self.train_loader = self._get_train_and_test_dataloader(self.current_class, False)
             else:
                 self.has_data = False
@@ -171,10 +170,11 @@ class GLFC_model:
         else:
             self.train_dataset.getTrainData(train_classes, [], [])
 
+        loader_workers = 0 if type(self.train_dataset).__name__ == 'FederatedTabularDataset' else 2
         train_loader = DataLoader(dataset=self.train_dataset,
                                   shuffle=True,
                                   batch_size=self.batchsize,
-                                  num_workers=2,
+                                  num_workers=loader_workers,
                                   pin_memory=True)
 
         return train_loader

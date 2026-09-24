@@ -99,6 +99,10 @@ class FederatedTabularDataset(Dataset):
         self.TrainLabels = np.array([])
         self.TestData = np.array([])
         self.TestLabels = np.array([])
+        self.TestIndices = None
+        self._test_data = None
+        self._test_targets = None
+        self._task_cache = {}
         self.current_task = 0
         self.current_task_index = 0
         self.task_ids = discover_task_ids(root_dir, self.auxiliary_roots)
@@ -125,27 +129,38 @@ class FederatedTabularDataset(Dataset):
         return con_data, con_label
 
     def getTestData(self, classes):
-        # We load the entire test dataset
-        obj = torch.load(self.test_file, map_location='cpu', weights_only=False)
-        data, targets = extract_xy(obj)
+        if self._test_data is None:
+            obj = torch.load(self.test_file, map_location='cpu', weights_only=False)
+            data, targets = extract_xy(obj)
+            self._test_data = torch.as_tensor(data)
+            self._test_targets = torch.as_tensor(targets, dtype=torch.long)
 
-        datas, labels = [], []
         if isinstance(classes, dict) and 'labels' in classes:
             labels_to_eval = sorted(set(int(label) for label in classes['labels']))
         else:
-            labels_to_eval = range(classes[0], classes[1])
+            labels_to_eval = list(range(classes[0], classes[1]))
 
+        mask = torch.zeros(len(self._test_targets), dtype=torch.bool)
         for label in labels_to_eval:
-            subset_data = data[targets == label]
-            if len(subset_data) > 0:
-                datas.append(subset_data)
-                labels.append(np.full((subset_data.shape[0]), label))
-        self.TestData, self.TestLabels = self.concatenate(datas, labels)
+            mask |= self._test_targets.eq(label)
+        self.TestIndices = torch.nonzero(mask, as_tuple=False).flatten()
 
     def load_task(self, task_id):
         # Handle both client_x_task_y.pt and clientx_tasky.pt (for compatibility)
         filepath = None
-        for root in candidate_roots(self.root_dir, self.auxiliary_roots):
+        roots = candidate_roots(self.root_dir, self.auxiliary_roots)
+        if self.auxiliary_roots and self.task_ids:
+            if task_id == self.task_ids[0]:
+                # Few-shot scenarios keep the initial task on the full-data split.
+                roots = candidate_roots(
+                    self.auxiliary_roots[0],
+                    [self.root_dir] + self.auxiliary_roots[1:],
+                )
+            else:
+                # Later tasks must never fall back to full data.
+                roots = candidate_roots(self.root_dir)
+
+        for root in roots:
             candidate = osp.join(root, f'client_{self.client_id}_task_{task_id}.pt')
             if not osp.exists(candidate):
                 candidate = osp.join(root, f'client{self.client_id}_task{task_id}.pt')
@@ -156,9 +171,11 @@ class FederatedTabularDataset(Dataset):
         if filepath is None:
             return torch.tensor([]), torch.tensor([])
             
-        obj = torch.load(filepath, map_location='cpu', weights_only=False)
+        if filepath not in self._task_cache:
+            obj = torch.load(filepath, map_location='cpu', weights_only=False)
+            self._task_cache[filepath] = extract_xy(obj)
 
-        return extract_xy(obj)
+        return self._task_cache[filepath]
 
     def get_task_file_id(self, task_index):
         return task_id_for_index(self.task_ids, task_index)
@@ -234,6 +251,10 @@ class FederatedTabularDataset(Dataset):
         if len(self.TrainData) > 0:
             img = self.TrainData[index]
             target = self.TrainLabels[index]
+        elif self.TestIndices is not None:
+             source_index = int(self.TestIndices[index])
+             img = self._test_data[source_index]
+             target = self._test_targets[source_index]
         elif len(self.TestData) > 0:
              img = self.TestData[index]
              target = self.TestLabels[index]
@@ -243,11 +264,13 @@ class FederatedTabularDataset(Dataset):
              img = self.transform(img)
              
         # Returns float32 tensors for model compatibility
-        return index, torch.tensor(img, dtype=torch.float32), torch.tensor(target, dtype=torch.long)
+        return index, torch.as_tensor(img, dtype=torch.float32), torch.as_tensor(target, dtype=torch.long)
 
     def __len__(self):
         if len(self.TrainData) > 0:
             return len(self.TrainData)
+        elif self.TestIndices is not None:
+            return len(self.TestIndices)
         elif len(self.TestData) > 0:
             return len(self.TestData)
         return 0

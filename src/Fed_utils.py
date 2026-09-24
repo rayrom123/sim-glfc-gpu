@@ -95,7 +95,13 @@ def local_train_step(client_obj, index, model_g_state, task_id, model_old, ep_g,
             'has_data': False,
             'exemplar_set': client_obj.exemplar_set,
             'learned_classes': client_obj.learned_classes,
-            'learned_numclass': client_obj.learned_numclass
+            'learned_numclass': client_obj.learned_numclass,
+            'task_id_old': client_obj.task_id_old,
+            'current_class': client_obj.current_class,
+            'last_class': client_obj.last_class,
+            'last_entropy': client_obj.last_entropy,
+            'signal': client_obj.signal,
+            'numclass': client_obj.numclass,
         }
 
     # 3. Cập nhật model và tập dữ liệu (Exemplars/Entropy) sau khi đã có loader
@@ -126,8 +132,19 @@ def local_train_step(client_obj, index, model_g_state, task_id, model_old, ep_g,
         'has_data': True,
         'exemplar_set': client_obj.exemplar_set,
         'learned_classes': client_obj.learned_classes,
-        'learned_numclass': client_obj.learned_numclass
+        'learned_numclass': client_obj.learned_numclass,
+        'task_id_old': client_obj.task_id_old,
+        'current_class': client_obj.current_class,
+        'last_class': client_obj.last_class,
+        'last_entropy': client_obj.last_entropy,
+        'signal': client_obj.signal,
+        'numclass': client_obj.numclass,
     }
+
+
+def local_train_batch(jobs):
+    """Run a group of clients sequentially inside one worker/GPU process."""
+    return [local_train_step(*job) for job in jobs]
 
 def FedAvg(models):
     w_avg = copy.deepcopy(models[0])
@@ -264,7 +281,14 @@ def model_global_eval(model_g, test_dataset, task_id, task_size, device, eval_la
     print(f"   [EVAL] Đang kiểm tra trên các lớp thuộc phạm vi: {test_range}")
     if eval_labels is not None:
         print(f"   [EVAL] Labels: {eval_labels}")
-    test_loader = DataLoader(dataset=test_dataset, shuffle=True, batch_size=128)
+    is_tabular = type(test_dataset).__name__ == 'FederatedTabularDataset'
+    test_loader = DataLoader(
+        dataset=test_dataset,
+        shuffle=False,
+        batch_size=8192 if is_tabular else 128,
+        num_workers=0 if is_tabular else 2,
+        pin_memory=device != 'cpu',
+    )
 
     criterion = nn.CrossEntropyLoss()
     correct, total = 0, 0

@@ -110,7 +110,7 @@ class proxyServer:
                             dummy_data = torch.randn((1, 3, 32, 32)).requires_grad_(True)
                         label_pred = torch.tensor([label_i]).long().requires_grad_(False)
 
-                    optimizer = torch.optim.LBFGS([dummy_data, ], lr=0.1)
+                    optimizer = torch.optim.LBFGS([dummy_data], lr=0.1)
                     if self.device != -1:
                         criterion = nn.CrossEntropyLoss().to(self.device)
                     else:
@@ -135,8 +135,7 @@ class proxyServer:
                             grad_diff.backward()
                             return grad_diff
 
-                        optimizer.step(closure)
-                        current_loss = closure().item()
+                        current_loss = optimizer.step(closure).item()
 
                         if iters == self.Iteration - 1:
                             print(current_loss)
@@ -152,4 +151,3 @@ class proxyServer:
                 self.new_set_label.append(label_i)
 
 
-    

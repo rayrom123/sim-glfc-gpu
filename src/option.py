@@ -39,7 +39,12 @@ def args_parser():
     parser.add_argument('--resume_path', type=str, default='', help="Path to checkpoint to resume from")
     parser.add_argument('--test_only', action='store_true', help="Only run evaluation on the loaded checkpoint")
     parser.add_argument('--save_interval', type=int, default=1, help="Save checkpoint every N rounds")
-    parser.add_argument('--checkpoint_dir', type=str, default='./checkpoints', help="Directory to save checkpoints")
+    parser.add_argument('--checkpoint_dir', type=str, default='', help="Directory to save checkpoints")
+    parser.add_argument(
+        '--eval_task_end_only',
+        action='store_true',
+        help='Skip global test evaluation on intermediate rounds and evaluate only at each task end',
+    )
 
     args = parser.parse_args()
     
