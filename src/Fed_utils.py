@@ -79,6 +79,14 @@ def local_train_step(client_obj, index, model_g_state, task_id, model_old, ep_g,
     # Gán thiết bị cho client trước khi thực hiện bất kỳ thao tác nào
     client_obj.target_device = device
     client_obj.device = target_dev
+
+    # Synchronize architecture and weights before checking client data. Clients
+    # without data must still contribute the current global model to FedAvg.
+    if hasattr(client_obj, 'Incremental_learning') and 'fc.weight' in model_g_state:
+        new_num_classes = model_g_state['fc.weight'].shape[0]
+        if client_obj.model.fc.out_features != new_num_classes:
+            client_obj.Incremental_learning(new_num_classes)
+    client_obj.model.load_state_dict(model_g_state)
     
     # Tiếp tục các bước khác
     # 1. Chuẩn bị dữ liệu và loader trước
@@ -89,7 +97,10 @@ def local_train_step(client_obj, index, model_g_state, task_id, model_old, ep_g,
     if not client_obj.has_data:
         return {
             'index': index,
-            'state_dict': client_obj.model.state_dict(),
+            'state_dict': {
+                key: value.detach().cpu()
+                for key, value in client_obj.model.state_dict().items()
+            },
             'proto_grad': None,
             'train_loss': 0.0,
             'has_data': False,
@@ -105,12 +116,6 @@ def local_train_step(client_obj, index, model_g_state, task_id, model_old, ep_g,
         }
 
     # 3. Cập nhật model và tập dữ liệu (Exemplars/Entropy) sau khi đã có loader
-    if hasattr(client_obj, 'Incremental_learning') and 'fc.weight' in model_g_state:
-        new_num_classes = model_g_state['fc.weight'].shape[0]
-        if client_obj.model.fc.out_features != new_num_classes:
-            client_obj.Incremental_learning(new_num_classes)
-            
-    client_obj.model.load_state_dict(model_g_state)
     client_obj.update_new_set(is_task_change)
     
     # 4. Thực hiện huấn luyện
@@ -144,13 +149,26 @@ def local_train_step(client_obj, index, model_g_state, task_id, model_old, ep_g,
 
 def local_train_batch(jobs):
     """Run a group of clients sequentially inside one worker/GPU process."""
-    return [local_train_step(*job) for job in jobs]
+    results = []
+    for job in jobs:
+        isolated_job = list(job)
+        isolated_job[0] = copy.deepcopy(isolated_job[0])
+        results.append(local_train_step(*isolated_job))
+    return results
 
 def FedAvg(models):
-    w_avg = copy.deepcopy(models[0])
+    if not models:
+        raise ValueError('FedAvg received no client models')
+
+    # Server-side aggregation is always performed on CPU. This also protects
+    # against CUDA tensors leaking from a worker process.
+    w_avg = {
+        key: value.detach().cpu().clone()
+        for key, value in models[0].items()
+    }
     for k in w_avg.keys():
         for i in range(1, len(models)):
-            w_avg[k] += models[i][k]
+            w_avg[k] += models[i][k].detach().cpu()
         w_avg[k] = torch.div(w_avg[k], len(models))
     return w_avg
 
